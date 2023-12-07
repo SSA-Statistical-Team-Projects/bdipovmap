@@ -165,7 +165,7 @@ countrymodel_select_stata <- function(dt,
                                       stata_path,
                                       stata_vnum,
                                       cluster_id,
-                                      area_tag){
+                                      area_tag = NULL){
 
   dt <- as.data.table(dt)
 
@@ -199,26 +199,45 @@ countrymodel_select_stata <- function(dt,
   options("RStata.StataPath" = stata_path)
   options("RStata.StataVersion" = stata_vnum)
 
-  stata_src <- c("use data.dta, replace",
-                 paste0("lassowrapper ",
-                        colnames(y),
-                        " ",
-                        x[1],
-                        "-",
-                        x[length(x)],
-                        ", weights(",
-                        weights,
-                        ") force(",
-                        paste0(area_tag, "*"),
-                        ") select(bic, postsel) cluster(",
-                        cluster_id,
-                        ") input(data.dta) output(model.txt)"))
+  if (is.null(area_tag)) {
+
+    stata_src <- c("use data.dta, replace",
+                   paste0("lassowrapper ",
+                          colnames(y),
+                          " ",
+                          x[1],
+                          "-",
+                          x[length(x)],
+                          ", weights(",
+                          weights,
+                          ") select(bic, postsel) cluster(",
+                          cluster_id,
+                          ") input(data.dta) output(model.txt)"))
+
+  } else {
+
+    stata_src <- c("use data.dta, replace",
+                   paste0("lassowrapper ",
+                          colnames(y),
+                          " ",
+                          x[1],
+                          "-",
+                          x[length(x)],
+                          ", weights(",
+                          weights,
+                          ") force(",
+                          paste0(area_tag, "*"),
+                          ") select(bic, postsel) cluster(",
+                          cluster_id,
+                          ") input(data.dta) output(model.txt)"))
+
+  }
 
   RStata::stata(src = stata_src)
 
   var_list <- readLines("model.txt")
 
-  var_list <- unlist(strsplit(model_vars, " "))
+  var_list <- unlist(strsplit(var_list, " "))
 
   return(var_list)
 
@@ -397,10 +416,32 @@ st_parallel_join <- function(x, y, numCores, splitvar,...){
 
 
 
+parallel_extract <- function(shp_dt,
+                             raster_list,
+                             fun_list,
+                             numCores){
+
+  ##initiating the parallelization process
+  numCores <- min(numCores, parallel::detectCores()) ##use the minimum of the specified processors or the max
+
+  doParallel::registerDoParallel(cores = numCores) ##initiate the number of cores to be used
+  parallelMap::parallelLibrary("foreach") ##loading the parallel looping library
+  parallelMap::parallelLibrary("exactextractr") ##loading the parallel looping library
+
+  ##the parallelization process
+  grid_list <-
+    foreach (i = 1:length(raster_list), .combine = "cbind") %dopar% {
+
+      exactextractr::exact_extract(x = raster_list[[i]],
+                                   y = shp_dt,
+                                   fun = fun_list[i])
+
+    }
 
 
+  return(grid_list)
 
-
+}
 
 
 

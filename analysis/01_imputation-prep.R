@@ -2,13 +2,14 @@
 ############### PREPARING THE SURVEY AND CENSUS DATA FOR SAE ###################
 ################################################################################
 
-pacman::p_load("haven", "sf", "data.table", "dplyr", "ggplot2", "nlme", "RStata")
+pacman::p_load("haven", "sf", "data.table", "dplyr", "ggplot2", "nlme", "RStata",
+               "exactextractr", "raster", "povmap", "viridis")
 
 ### read in the datasets
 
 grid_dt <- readRDS("data-raw/ind_list.RDS")
 
-grid_dt <- grid_dt$admin3_grid ### the geospatial grid data
+grid_dt <- grid_dt$admin4_poppoly ### the geospatial grid data
 
 geosurvey_dt <- haven::read_dta("data-raw/hh_poverty.dta") ### household survey
 
@@ -34,11 +35,18 @@ geosurvey_dt <- geocodes_dt[geosurvey_dt, on = "hhid"][, c("i.enum_area",
                                                            "i.weight") := NULL ]
 
 #### include the grid area information with the geosurvey data
-grid_dt <-
-grid_dt %>%
-  mutate(admin3Pcod = paste0(admin2Pcod,
-                             sprintf(paste0("%0", max(nchar(admin3Pcode)), "d"),
-                                     admin3Pcode)))
+# grid_dt <-
+# grid_dt %>%
+#   mutate(admin4Pcod = paste0(admin3Pcod,
+#                              sprintf(paste0("%0", max(nchar(admin4Pcode)), "d"),
+#                                      admin4Pcode)))
+
+admin_dt <- readRDS("data-clean/bdi_gridded_v02.rds")
+admin_dt <- admin_dt$admin4_poppoly
+
+grid_dt <- merge(x = grid_dt,
+                 y = admin_dt[, c("admin4Pcode", "geometry")])
+
 
 grid_dt <-
   grid_dt %>%
@@ -161,7 +169,70 @@ geosurvey_dt[, rangeland_growth := `2020_Rangeland` - `2017_Rangeland`]
 
 
 ### remove zero population grids
-grid_dt <- grid_dt[sum.bdi_ppp_2020 > 0,]
+grid_dt <-
+  grid_dt %>%
+  as.data.frame() %>%
+  st_as_sf(crs = 32735) %>%
+  st_transform(crs = 4326)
+
+
+### read in the population raster
+pop_dir <- "//esapov/esapov/BDI/GEO/Population"
+pop_dt <- raster(paste0(pop_dir,
+                        "/bdi_ppp_2020_UNadj_constrained.tif")) %>%
+  rasterToPolygons() %>%
+  st_as_sf()
+
+pop_dt$admin4Pcode <- 1:nrow(pop_dt)
+
+pop_dt <-
+  pop_dt %>%
+  mutate(admin4Pcode = as.character(admin4Pcode))
+
+grid_dt <- merge(grid_dt,
+                 pop_dt[,c("admin4Pcode",
+                           "bdi_ppp_2020_UNadj_constrained")] %>%
+                   st_drop_geometry())
+
+grid_dt <- as.data.table(grid_dt)
+
+grid_dt <- grid_dt[bdi_ppp_2020_UNadj_constrained > 0,]
+
+
+### include the admin2 variables as well
+admin2_dt <- readRDS("data-raw/ind_list.RDS")
+
+admin2_dt <- admin2_dt$admin2_Communes
+
+admin2_dt <- as.data.table(admin2_dt)
+
+rename_vars <-
+  colnames(admin2_dt)[!grepl(pattern = "^admin|^area$",
+                            x = colnames(admin2_dt))]
+
+rename_vars <- paste0("targetave_", rename_vars)
+
+setnames(admin2_dt,
+         colnames(admin2_dt)[!grepl(pattern = "^admin|^area$",
+                                    x = colnames(admin2_dt))],
+         rename_vars)
+
+grid_dt <- merge(grid_dt,
+                 admin2_dt)
+
+### add to the geosurvey
+add_dt <-
+  grid_dt[, c(rename_vars, "geometry"), with = F] %>%
+  st_as_sf(crs = 4326) %>%
+  st_transform(crs = 32735)
+
+geosurvey_dt <-
+  geosurvey_dt %>%
+  st_as_sf(crs = 32735)
+
+geosurvey_dt <- st_join(geosurvey_dt, add_dt)
+
+geosurvey_dt <- as.data.table(geosurvey_dt)
 
 
 ### replace variable names that start with digits
@@ -225,47 +296,129 @@ grid_dt[is.na(grid_dt)] <- 0
 ### include the EA variable from geocodes_dt
 geosurvey_dt <- geocodes_dt[, c("enum_area", "hhid")][geosurvey_dt, on = "hhid"]
 
-
+geosurvey_dt[, lnpc_tot_cons := log(pc_tot_cons + 1)]
 ### model selection using stata lasso regression model with cluster effect controls
+
 model_vars <- countrymodel_select_stata(dt = geosurvey_dt,
                                         xvars = candidate_vars,
-                                        y = "pc_tot_cons",
+                                        y = "lnpc_tot_cons",
                                         weights = "weight",
                                         stata_path = "D:/Programs/Stata17/StataMP-64",
                                         stata_vnum = 17,
                                         cluster_id = "enum_area",
                                         area_tag = "BDI")
 
+model_vars2 <- countrymodel_select_stata(dt = geosurvey_dt,
+                                         xvars = candidate_vars,
+                                         y = "lnpc_tot_cons",
+                                         weights = "weight",
+                                         stata_path = "D:/Programs/Stata17/StataMP-64",
+                                         stata_vnum = 17,
+                                         cluster_id = "enum_area",
+                                         area_tag = NULL)
+
+### create the admin2 variables as integers
+geosurvey_dt[, targetarea_codes := as.integer(substr(admin2Pcod, 4, nchar(admin2Pcod)))]
+grid_dt[, targetarea_codes := as.integer(substr(admin2Pcod, 4, nchar(admin2Pcod)))]
+
+###
+missing_dt <-
+  geosurvey_dt[geosurvey_dt$admin2Pcod == 0,] %>%
+  as.data.frame() %>%
+  st_as_sf(crs = 32735)
+
+test_dt <- readRDS("data-clean/bdi_gridded_v02.rds")
+
+test_dt <- test_dt$admin2_Communes
+
+missing_dt <- st_join(missing_dt[,c("geometry", "hhid")],
+                      test_dt %>% st_transform(crs = 32735))
+
+missing_dt$merger <- missing_dt$admin2Pcod
+
+geosurvey_dt <- left_join(geosurvey_dt,
+                          missing_dt[, c("hhid", "merger")] %>%
+                            st_drop_geometry(),
+                          by = "hhid")
+
+geosurvey_dt[admin2Pcod == 0, admin2Pcod := merger]
+
+geosurvey_dt[, targetarea_codes := as.integer(substr(admin2Pcod, 4, nchar(admin2Pcod)))]
+
+geosurvey_dt$hhweight <- geosurvey_dt$weight * geosurvey_dt$hh_size
+
+#### estimate the model
+unit_model <- povmap::ebp(fixed = as.formula(paste("pc_tot_cons ~ ", paste(model_vars, collapse= "+"))),
+                          pop_data = as.data.frame(na.omit(grid_dt[,c(model_vars,
+                                                                     "targetarea_codes",
+                                                                     "bdi_ppp_2020_UNadj_constrained"),
+                                                                     with = FALSE])),
+                          pop_domains = "targetarea_codes",
+                          smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin2Pcod),
+                                                                        c("pc_tot_cons",
+                                                                          model_vars,
+                                                                          "targetarea_codes",
+                                                                          "hhweight"),
+                                                                          with = FALSE])),
+                          smp_domains = "targetarea_codes",
+                          L = 100,
+                          B = 100,
+                          transformation = "log",
+                          threshold = 10381.14,
+                          weights = "hhweight",
+                          pop_weights = "bdi_ppp_2020_UNadj_constrained",
+                          cpus = 30,
+                          MSE = TRUE,
+                          na.rm = TRUE)
 
 
 
 
+#### plot poverty map
+
+pov_dt <- readRDS("data-clean/bdi_gridded_v02.rds")
+
+pov_dt <- pov_dt$admin2_Communes
+
+pov_dt$targetarea_codes <- as.integer(substr(pov_dt$admin2Pcod, 4, nchar(pov_dt$admin2Pcod)))
 
 
+pov_dt <- merge(x = unit_model$ind,
+                y = pov_dt,
+                by.x = "Domain",
+                by.y = "targetarea_codes")
+
+pov_dt %>%
+  st_as_sf(crs = 4326) %>%
+  ggplot() +
+  geom_sf(aes(fill = Head_Count)) +
+  scale_fill_viridis_c(option = "H") +
+  theme_minimal()
+
+ggsave("figures/bdi_poverty_map.png")
+
+save.image(file = "data-raw/all_modelestimation.RData")
+
+write.csv(pov_dt %>% st_as_sf(crs = 4326) %>% st_drop_geometry(),
+          "data-clean/bdi_poverty_map.csv")
+
+### include the population weights to compare poverty rates
+weights_dt <- geosurvey_dt[,sum(hhweight, na.rm = TRUE), by = "targetarea_codes"]
+
+setnames(weights_dt, "V1", "population")
+
+pov_dt <- merge(pov_dt, weights_dt, by.x = "Domain", by.y = "targetarea_codes")
+
+pov_dt %>%
+  summarize(weighted.mean(x = Head_Count,
+                          w = population))
+
+geosurvey_dt[, poor := ifelse(pc_tot_cons < 10381.14, 1, 0)]
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+geosurvey_dt %>%
+  summarize(weighted.mean(x = poor,
+                          w = hhweight))
 
 
 
