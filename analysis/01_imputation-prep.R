@@ -204,6 +204,8 @@ pop_dt <-
   pop_dt %>%
   mutate(admin4Pcode = as.character(admin4Pcode))
 
+saveRDS(pop_dt, "data-clean/worldpop.RDS")
+
 grid_dt <- merge(grid_dt,
                  pop_dt[,c("admin4Pcode",
                            "bdi_ppp_2020_UNadj_constrained")] %>%
