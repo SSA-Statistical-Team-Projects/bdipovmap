@@ -44,13 +44,13 @@ geosurvey_dt <- geocodes_dt[geosurvey_dt, on = "hhid"][, c("i.enum_area",
 admin_dt <- readRDS("data-clean/bdi_gridded_v02.rds")
 admin_dt <- admin_dt$admin4_poppoly
 
-grid_dt <- merge(x = grid_dt,
-                 y = admin_dt[, c("admin4Pcode", "geometry")])
-
+# grid_dt <- merge(x = grid_dt,
+#                  y = admin_dt[, c("admin2Pcode", "geometry")])
 
 grid_dt <-
   grid_dt %>%
-  st_as_sf(crs = st_crs("+init=EPSG:32735"))
+  as.data.frame() %>%
+  st_as_sf(crs = 32735)
 
 geosurvey_dt <-
   geosurvey_dt[, c("hhid", "hh_size", "weight", "weight_adj",
@@ -60,6 +60,22 @@ geosurvey_dt <-
   st_transform(crs = st_crs("+init=EPSG:32735")) %>%
   st_join(grid_dt)
 
+
+#### check out the welfare distribution
+welfare_plot <-
+geosurvey_dt %>%
+  ggplot(aes(x = log(pc_tot_cons))) +
+  geom_histogram(binwidth = 0.1,
+                 fill = "blue",
+                 color = "black",
+                 alpha = 0.7) +
+  labs(title = "Welfare Distribution Histogram",
+       x = "Log Welfare per capita",
+       y = "Frequency") +
+  theme_minimal()
+
+ggsave(plot = welfare_plot,
+       "figures/log_welfare_histogram.png")
 
 saveRDS(geosurvey_dt, "data-clean/geosurvey.RDS")
 
@@ -78,7 +94,6 @@ ggplot() +
 
 ggsave(plot = hhgeo_plot,
        "figures/hhlocations_plot.png")
-
 
 ### create some variables for growth in ntl
 grid_dt <- as.data.table(grid_dt)
@@ -250,6 +265,9 @@ geosurvey_dt <- cbind(geosurvey_dt,
 grid_dt <- cbind(grid_dt,
                  as.data.table(dummify(grid_dt$admin1Pcod)))
 
+
+
+
 ################################################################################
 ################### MODEL SELECTION ANALYTICS PRE-IMPUTATION ###################
 ################################################################################
@@ -261,38 +279,56 @@ remove_vars <- c("hhid", "hh_size", "weight", "weight_adj",
 
 candidate_vars <- colnames(geosurvey_dt)[!colnames(geosurvey_dt) %in% remove_vars]
 
+### check out the correlation matrices
+geosurvey_dt$geometry <- NULL
+geosurvey_dt$targetave_geometry <- NULL
+
+geosurvey_dt[, lnpc_tot_cons := log(pc_tot_cons + 1)]
+
+### create the admin2 variables as integers
+geosurvey_dt[, targetarea_codes := as.integer(substr(admin2Pcod, 4, nchar(admin2Pcod)))]
+grid_dt[, targetarea_codes := as.integer(substr(admin2Pcod, 4, nchar(admin2Pcod)))]
+
+
+###
+missing_dt <-
+  geosurvey_dt[is.na(geosurvey_dt$admin2Pcod),] %>%
+  as.data.frame() %>%
+  merge(geocodes_dt[, c("hhid", "SI15", "SI16")]) %>%
+  st_as_sf(crs = 4326,
+           coords = c("SI16", "SI15")) %>%
+  st_transform(crs = 32735)
+
+test_dt <- readRDS("data-clean/bdi_gridded_v02.rds")
+
+test_dt <- test_dt$admin2_Communes
+
+missing_dt <- st_join(missing_dt[,c("geometry", "hhid")],
+                      test_dt %>% st_transform(crs = 32735))
+
+missing_dt$merger <- missing_dt$admin2Pcod
+
+geosurvey_dt <- left_join(geosurvey_dt,
+                          missing_dt[, c("hhid", "merger")] %>%
+                            st_drop_geometry(),
+                          by = "hhid")
+
+geosurvey_dt[admin2Pcod == 0, admin2Pcod := merger]
+
+geosurvey_dt[, targetarea_codes := as.integer(substr(admin2Pcod, 4, nchar(admin2Pcod)))]
+
+geosurvey_dt$hhweight <- geosurvey_dt$weight * geosurvey_dt$hh_size
+
 ## drop variables that have too many NAs or NaNs
 geosurvey_dt[is.na(geosurvey_dt)] <- 0
 grid_dt[is.na(grid_dt)] <- 0
 
+write.csv(cor(geosurvey_dt[, c(candidate_vars, "lnpc_tot_cons"), with = F]),
+          "data-clean/corr_matrix2.csv")
+
+### create some additional variables
 
 
-# fixed <- as.formula(paste("pc_tot_cons ~ ",
-#                           paste(candidate_vars,
-#                                 collapse = " + ")))
-#
-#
-# mixed_model <- nlme::lme(
-#   fixed = fixed,
-#   data = geosurvey_dt,
-#   random =
-#   as.formula(paste0("~ 1 | as.factor(","admin2Pcod", ")")),
-#   method = "REML",
-#   control = nlme::lmeControl(maxIter = 1000,
-#                              tolerance = 1e-6,
-#                              opt = "nlminb",
-#                              optimMethod = "REML",
-#                              msMaxIter = 1000,
-#                              msTol = 1e-7
-#   ),
-#   weights =
-#     varComb(
-#       varIdent(as.formula(
-#         paste0("~ 1 | as.factor(", "admin2Pcod", ")")
-#       )),
-#       varFixed(as.formula(paste0("~1/", "weight")))
-#     )
-# )
 ### include the EA variable from geocodes_dt
 geosurvey_dt <- geocodes_dt[, c("enum_area", "hhid")][geosurvey_dt, on = "hhid"]
 
@@ -317,35 +353,6 @@ model_vars2 <- countrymodel_select_stata(dt = geosurvey_dt,
                                          cluster_id = "enum_area",
                                          area_tag = NULL)
 
-### create the admin2 variables as integers
-geosurvey_dt[, targetarea_codes := as.integer(substr(admin2Pcod, 4, nchar(admin2Pcod)))]
-grid_dt[, targetarea_codes := as.integer(substr(admin2Pcod, 4, nchar(admin2Pcod)))]
-
-###
-missing_dt <-
-  geosurvey_dt[geosurvey_dt$admin2Pcod == 0,] %>%
-  as.data.frame() %>%
-  st_as_sf(crs = 32735)
-
-test_dt <- readRDS("data-clean/bdi_gridded_v02.rds")
-
-test_dt <- test_dt$admin2_Communes
-
-missing_dt <- st_join(missing_dt[,c("geometry", "hhid")],
-                      test_dt %>% st_transform(crs = 32735))
-
-missing_dt$merger <- missing_dt$admin2Pcod
-
-geosurvey_dt <- left_join(geosurvey_dt,
-                          missing_dt[, c("hhid", "merger")] %>%
-                            st_drop_geometry(),
-                          by = "hhid")
-
-geosurvey_dt[admin2Pcod == 0, admin2Pcod := merger]
-
-geosurvey_dt[, targetarea_codes := as.integer(substr(admin2Pcod, 4, nchar(admin2Pcod)))]
-
-geosurvey_dt$hhweight <- geosurvey_dt$weight * geosurvey_dt$hh_size
 
 #### estimate the model
 unit_model <- povmap::ebp(fixed = as.formula(paste("pc_tot_cons ~ ", paste(model_vars, collapse= "+"))),
@@ -425,6 +432,32 @@ geosurvey_dt %>%
 
 
 
+# fixed <- as.formula(paste("pc_tot_cons ~ ",
+#                           paste(candidate_vars,
+#                                 collapse = " + ")))
+#
+#
+# mixed_model <- nlme::lme(
+#   fixed = fixed,
+#   data = geosurvey_dt,
+#   random =
+#   as.formula(paste0("~ 1 | as.factor(","admin2Pcod", ")")),
+#   method = "REML",
+#   control = nlme::lmeControl(maxIter = 1000,
+#                              tolerance = 1e-6,
+#                              opt = "nlminb",
+#                              optimMethod = "REML",
+#                              msMaxIter = 1000,
+#                              msTol = 1e-7
+#   ),
+#   weights =
+#     varComb(
+#       varIdent(as.formula(
+#         paste0("~ 1 | as.factor(", "admin2Pcod", ")")
+#       )),
+#       varFixed(as.formula(paste0("~1/", "weight")))
+#     )
+# )
 
 
 
