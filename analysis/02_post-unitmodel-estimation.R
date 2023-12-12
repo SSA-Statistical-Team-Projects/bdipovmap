@@ -85,7 +85,6 @@ descriptives_dt <-
                          pop_domains = "targetarea_codes",
                          threshold = 10381.14)
 
-saveRDS(descriptives_dt, "figures/post-est-tables/descriptives_tables.RDS")
 
 ### just modify the survey poverty rate
 descriptives_dt$poverty_df$survey[[1]] <-
@@ -95,6 +94,7 @@ descriptives_dt$poverty_df$survey[[1]] <-
                           w = weight * hh_size,
                           na.rm = TRUE))
 
+saveRDS(descriptives_dt, "figures/post-est-tables/descriptives_tables.RDS")
 
 
 ##### compare the means between survey and census prior to model estimation
@@ -242,7 +242,11 @@ write.csv(povadmin1_dt, "figures/post-est-tables/admin1_poverty_censusvssurvey.c
 
 
 
+#### save a few other things for posterity
 
+saveRDS(geosurvey_dt, "data-clean/model-data/fullgeosurvey.RDS")
+saveRDS(grid_dt, "data-clean/model-data/fullgeocensus.RDS")
+saveRDS(unit_model, "data-clean/model-data/ebp_unitmodel_results.RDS")
 
 
 
