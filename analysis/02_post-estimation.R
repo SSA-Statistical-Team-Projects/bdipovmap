@@ -220,18 +220,25 @@ povadmin1_dt <-
 povadmin1_dt %>%
   summarise(weighted.mean(x = bmrate, w = survey_population))
 
-
-
-
-write.csv(povadmin1_dt, "figures/post-est-tables/admin1_poverty_censusvssurvey.csv")
-
-
 ### plot the comparison of census and survey estimates
 
 povadmin1_dt %>%
   ggplot() +
   geom_point(aes(x = survey_headcount,
-                 y = ebp_headcount))
+                 y = ebp_headcount)) +
+  xlim(c(0, 0.9)) +
+  ylim(c(0, 0.9)) +
+  geom_abline(intercept = 0,
+              slope = 1,
+              linetype = "dashed",
+              color = "red") +
+  theme_bw() +
+  xlab("EBP Model Estiamtes") +
+  ylab("Direct Estimates")
+
+ggsave("figures/compare_admin1_surveycensus_headcount.png")
+
+write.csv(povadmin1_dt, "figures/post-est-tables/admin1_poverty_censusvssurvey.csv")
 
 
 
