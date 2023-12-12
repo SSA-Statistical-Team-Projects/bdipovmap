@@ -444,10 +444,49 @@ parallel_extract <- function(shp_dt,
 }
 
 
+##### a function to check the relationship between specific variables and outcome variable
 
+plot_xy_relationship <- function(xvars, y, data) {
 
+  data <- as.data.table(data)
+  data <- na.omit(data[, c(xvars, y), with = FALSE])
 
+  plotlist <- lapply(xvars, function(x) {
 
+    p <- ggplot(data, aes(x = .data[[x]], y = .data[[y]])) +
+      geom_point() +
+      geom_smooth(method = "auto", se = FALSE)
+
+    return(p)
+  })
+
+  print(arrangeGrob(grobs = plotlist, nrow = round(length(plotlist)^0.5)))
+}
+
+find_optlambda <- function(lambda,
+                           dt,
+                           cand_vars,
+                           delta_start,
+                           q_start) {
+
+  tryCatch(
+    {
+      glm1 <- glmmLasso(
+        as.formula(paste("lnrpc_tot_cons ~ ", paste(cand_vars, collapse = "+"))),
+        rnd = list(targetarea_codes = ~1),
+        family = gaussian(link = "identity"),
+        data = na.omit(dt),
+        lambda = lambda,
+        switch.NR = TRUE,
+        final.re = TRUE,
+        control = list(start = delta_start, q_start = q_start)
+      )
+      return(glm1$bic)
+    },
+    error = function(e) Inf
+  )
+
+}
 
 
 

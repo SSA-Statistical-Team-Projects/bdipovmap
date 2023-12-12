@@ -1,0 +1,7 @@
+"","Variable","coeff","std_error"
+"1","(Intercept)","9.1880***","0.2469"
+"2","lightscore_sy_2019","0.2983***","0.0733"
+"3","prplit_conf90_sy_2019","-0.15","0.0847"
+"4","building_mean_area","0.4853***","0.0867"
+"5","building_mean_length","-0.59***","0.1692"
+"6","normal_ntl_mean2020","0.1484***","0.0091"
