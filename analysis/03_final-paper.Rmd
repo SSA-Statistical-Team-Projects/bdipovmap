@@ -1,0 +1,124 @@
+---
+title: "Small Area Estimation of Poverty in Burundi"
+author: "Ifeanyi Edochie"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if (!requireNamespace("pacman", quietly = TRUE)) {
+  
+  install.packages("pacman")
+  
+}
+
+
+pacman::p_load(data.table, dplyr, sf, here, ggplot2, captioner)
+
+geosurvey_dt <- readRDS(here("data-clean/model-data/fullgeosurvey.RDS"))
+
+
+
+
+
+```
+
+
+## Introduction
+
+Household surveys are often represented at the national level or at the level of first administrative division (region/state level). National Statistical Offices and government entities often require poverty estimation at a higher level of resolution, often at the commune or district level but sometimes at the neighbourhood levels. This note describes the small area estimation (SAE) method implemented to estimate commune level (administrative level 2) poverty rates in small country setting like Burundi. SAE is a statistical method used to improve survey estimates by combining survey data with geographically comprehensive auxiliary data, such as census when available or a geospatial or remotely sensed data. In Burundi, we show that SAE enabled reporting poverty estimates at the commune level instead of the regional level which will support interventions around poverty reduction in the future.
+
+Ideally, small area estimation combines survey data with census data. The United Nations Statistics Division (UNSD) recommends in its guidelines that censuses be around 10 years apart. Many African countries will take more years and indeed Burundi's last census was conducted in 2008. Using the 15 year old census, will likely not capture subsequent changes in poverty within the country. Therefore, this exercise relies on contemporaneous geospatial data derived from a variety sources. [battese et al, 1988] were the first to use geospatial satellite data in the context of crop production. Other studies [cite here] have used satellite data to predict wealth indices. In this paper, we employ a common SAE method based on the empirical best predictor model of [Jiang and Lahiri, 2006, Molina and Rao, 2010]. TALK ABOUT WHAT WE SHOW HERE!
+
+SUMMARIZE THE STRUCTURE OF THE PAPER HERE
+
+## The Model and Data
+
+#### Methodological Motivation
+We utilize freely available geospatial data for this small area estimation exercise since the last census was conducted in 2008. The goal of the SAE exercise is to estimate commune level poverty rates in Burundi by estimating a unit level model of household welfare and estimating this into a synthetic census using geospatial data. A more recent census would be preferred to the synthetic geospatial census as a more precise and informative source on auxiliary data covariates such as household size, education, sector of employment, that are far better predictors of poverty than the geospatial indicators. Given that any recent developments in Burundi might not be captured by its 15-year old census, it is difficult to make a case for estimating household welfare in the 2008 census particularly if this will guide current policy interventions. 
+
+The World Bank SAE guidelines (Corral et al., 2022) recommends implementing a unit level SAE model approach in the unique case where a set of covariates that are similarly defined and with similar distributions across both census and survey. Burundi presents the less frequent case study in which the household survey is geocoded at the household (as opposed to Enumeration Area level). This presents the opportunity to estimate geospatial indicator variables at the household level via a unit level model and predict poverty rates using a synthetic geospatial census. 
+
+#### The Geospatial Data
+The Burundi EICVMB (L’Enquête sur les Conditions de Vies des Ménages) survey was carried out from March 2020 until February 2021. It contains a sample of 8358 households all of which are geocoded at the household level which is most conducive unit level model estimation. It is worth noting, however, that 2 household geocodes are located outside Burundi possibly as a result of poor recording and 76 households are missing welfare aggregates. 
+
+```{r, echo = FALSE}
+
+shp_dt <- sf::read_sf(dsn = here("data-raw/adm1"),
+                      layer = "bdi_admbnda_adm1_igebu_ocha_20171103")
+
+outbdi_hhids <- st_join(x = geosurvey_dt[,c("hhid", "geometry")] %>% st_as_sf(crs = 4326),
+                        shp_dt[,c("geometry", "admin1Pcod")])
+
+outbdi_hhids <- outbdi_hhids$hhid[is.na(outbdi_hhids$admin1Pcod)]
+
+geosurvey_dt$cases <- "green"
+  
+geosurvey_dt$cases[geosurvey_dt$hhid %in% outbdi_hhids] <- "blue"
+
+geosurvey_dt$cases[is.na(geosurvey_dt$rpc_tot_cons)] <- "red"
+  
+ggplot() +
+  geom_sf(data = shp_dt, 
+          fill = "white", 
+          color = "black") +
+  geom_sf(data = geosurvey_dt %>%
+            as.data.frame() %>%
+            st_as_sf(), 
+          aes(color = cases), alpha = 0.5) +
+  scale_color_manual(values = c("blue", "green", "red")) +
+  labs(x = "Longitude",
+       y = "Latitude") +
+  theme_bw() + 
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+ggsave("figures/householdlocations.png")
+
+
+
+```
+
+
+
+
+
+
+### Small area estimation methodology
+We estimate commune level headcount poverty rates using a standard nested error empirical best predictor (EBP) household (unit) level model (Battese et al., 1988; Jiang and Lahiri, 2006; Molina and Rao 2010, Tzavidis et al, 2018). The methodology is similar to that of Masaki et al. (2022) which estimates non-monetary poverty indicators in Tanzania and Sri Lanka using geospatial indicators as well as Edochie et al (forthcoming) which applies a similar method to estimate poverty rates in Chad, Mali, Niger and Guinea. 
+
+    
+
+```{r, echo = FALSE}
+
+descriptives_dt <- readRDS(here("figures/post-est-tables/descriptives_tables.RDS"))
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
