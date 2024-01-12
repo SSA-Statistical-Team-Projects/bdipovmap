@@ -169,6 +169,10 @@ countrymodel_select_stata <- function(dt,
 
   dt <- as.data.table(dt)
 
+  weights_arg <- weights
+
+  y_arg <- y
+
   if(is.null(weights) == FALSE){
 
     dt <- na.omit(dt[,c(y, xvars, weights, cluster_id), with = F])
@@ -203,13 +207,13 @@ countrymodel_select_stata <- function(dt,
 
     stata_src <- c("use data.dta, replace",
                    paste0("lassowrapper ",
-                          colnames(y),
+                          y_arg,
                           " ",
                           x[1],
                           "-",
                           x[length(x)],
                           ", weights(",
-                          weights,
+                          weights_arg,
                           ") select(bic, postsel) cluster(",
                           cluster_id,
                           ") input(data.dta) output(model.txt)"))
@@ -233,6 +237,9 @@ countrymodel_select_stata <- function(dt,
 
   }
 
+
+
+
   RStata::stata(src = stata_src)
 
   var_list <- readLines("model.txt")
@@ -243,6 +250,7 @@ countrymodel_select_stata <- function(dt,
 
 
 }
+
 
 
 #shells to Stata to estimate lasso
@@ -491,6 +499,13 @@ find_optlambda <- function(lambda,
 
 
 
+missing_rate <- function(x){
+
+  num_missing <- length(x[is.na(x)])
+
+  return(num_missing)
+
+}
 
 
 

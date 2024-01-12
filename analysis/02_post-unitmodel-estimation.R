@@ -41,9 +41,9 @@ geosurvey_dt <-
   merge(shp_dt[, c("admin1Name", "admin1Pcod")] %>%
           st_drop_geometry())
 
-setnames(grid_dt,
-         old = c("admin0Pcod_x", "admin1Pcod_x", "admin2Name_x"),
-         new = c("admin0Pcod", "admin1Pcod", "admin2Name"))
+# setnames(grid_dt,
+#          old = c("admin0Pcod_x", "admin1Pcod_x", "admin2Name_x"),
+#          new = c("admin0Pcod", "admin1Pcod", "admin2Name"))
 
 grid_dt[,c("admin0Pcod_y", "admin1Pcod_y", "admin2Name_y") := NULL]
 
@@ -55,12 +55,12 @@ grid_dt <-
 
 
 unit_model_dt <-
-  na.omit(geosurvey_dt[,c("rpc_tot_cons", selvars_list,
+  na.omit(geosurvey_dt[,c("rpc_tot_cons", stata_vars,
                           "hhweight", "hhid", "admin1Name"), with = FALSE])
 
 
 direct_dt <- povmap::direct(y = "rpc_tot_cons",
-                            smp_data =   na.omit(geosurvey_dt[,c("rpc_tot_cons", selvars_list,
+                            smp_data =   na.omit(geosurvey_dt[,c("rpc_tot_cons", stata_vars,
                                                                  "hhweight", "hhid", "admin1Name",
                                                                  "targetarea_codes"),
                                                               with = FALSE]),
@@ -74,7 +74,7 @@ saveRDS(direct_dt, "figures/post-est-tables/direct_estimates.RDS")
 descriptives_dt <-
   ebp_reportdescriptives(model = unit_model,
                          direct = direct_dt,
-                         smp_data = na.omit(geosurvey_dt[,c("rpc_tot_cons", selvars_list,
+                         smp_data = na.omit(geosurvey_dt[,c("rpc_tot_cons", stata_vars,
                                                             "hhweight", "hhid", "admin1Name",
                                                             "targetarea_codes"),
                                                          with = FALSE]),
@@ -99,7 +99,7 @@ saveRDS(descriptives_dt, "figures/post-est-tables/descriptives_tables.RDS")
 
 ##### compare the means between survey and census prior to model estimation
 checkvariables_dt <-
-ebp_test_means(varlist = selvars_list,
+ebp_test_means(varlist = stata_vars,
                pop_data = grid_dt,
                smp_data = geosurvey_dt,
                weights = "hhweight")
@@ -247,6 +247,86 @@ write.csv(povadmin1_dt, "figures/post-est-tables/admin1_poverty_censusvssurvey.c
 saveRDS(geosurvey_dt, "data-clean/model-data/fullgeosurvey.RDS")
 saveRDS(grid_dt, "data-clean/model-data/fullgeocensus.RDS")
 saveRDS(unit_model, "data-clean/model-data/ebp_unitmodel_results.RDS")
+
+
+#### create the regression table
+
+ebp_normalityfit(unit_model)
+
+
+
+#### open cv_dt and add in the names of the areas
+cv_dt <- read.csv("figures/post-est-tables/targetarea_cvtable.csv")
+
+admin2_dt$targetarea_codes <- as.integer(substr(admin2_dt$admin2Pcod,
+                                                4,
+                                                nchar(admin2_dt$admin2Pcod)))
+
+cv_dt <-
+  cv_dt %>%
+  merge(admin2_dt[, c("targetarea_codes", "admin2Name")],
+        by.x = "Domain", by.y = "targetarea_codes")
+
+write.csv(cv_dt, "figures/post-est-tables/targetarea_cvtable2.csv")
+
+
+
+#### plot ntl tesselation for gitega and bujumbura
+grid_dt %>%
+  as.data.frame() %>%
+  st_as_sf(crs = 32735) %>%
+  filter(admin1Pcod == "BDI006") %>%
+  ggplot() +
+  geom_sf(aes(fill = pop_density_2015)) +
+  scale_fill_viridis(option = "C") +
+  theme_bw() +
+  labs(fill = "2015 Population Density \n in Gitega")
+
+ggsave("figures/2015populationdensity_gitega.png")
+
+grid_dt %>%
+  as.data.frame() %>%
+  st_as_sf(crs = 32735) %>%
+  filter(admin1Pcod == "BDI017") %>%
+  ggplot() +
+  geom_sf(aes(fill = prplit_conf90_sy_2019)) +
+  scale_fill_viridis(option = "C") +
+  theme_bw() +
+  labs(fill = "2015 Population Density \n in Bujumbura Mairie")
+
+ggsave("figures/2015populationdensity_bujumburamairie.png")
+
+grid_dt %>%
+  as.data.frame() %>%
+  st_as_sf(crs = 32735) %>%
+  filter(admin1Pcod == "BDI002") %>%
+  ggplot() +
+  geom_sf(aes(fill = prplit_conf90_sy_2019)) +
+  scale_fill_viridis(option = "C") +
+  theme_bw() +
+  labs(fill = "2015 Population Density \n in Bujumbura Rural")
+
+ggsave("figures/2015populationdensity_bujumburarural.png")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

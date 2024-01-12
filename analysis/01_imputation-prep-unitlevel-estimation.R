@@ -365,6 +365,21 @@ geosurvey_dt %>%
                                        w = weight * hh_size,
                                        na.rm = TRUE))
 
+### rename variable names that are over 32 characters long
+invalid_names <- colnames(geosurvey_dt)[nchar(colnames(geosurvey_dt)) >= 32]
+
+### remove the ms_mean_v01 within the dhs data variable names
+valid_names <- gsub(pattern = "_MS_MEAN_v01",
+                    replacement = "",
+                    invalid_names)
+
+valid_names <- gsub(pattern = "_Flooded_vegetation",
+                    replacement = "_fld_veg",
+                    valid_names)
+
+setnames(geosurvey_dt, invalid_names, valid_names)
+setnames(grid_dt, invalid_names, valid_names)
+
 ################################################################################
 ################### MODEL SELECTION ANALYTICS PRE-IMPUTATION ###################
 ################################################################################
@@ -377,7 +392,6 @@ remove_vars <- c("hhid", "hh_size", "weight", "weight_adj", "hhweight",
                                               colnames(geosurvey_dt))])
 
 candidate_vars <- colnames(geosurvey_dt)[!colnames(geosurvey_dt) %in% remove_vars]
-
 
 ### turn grid and geospatial survey into data.tables
 grid_dt <- as.data.table(grid_dt)
@@ -429,146 +443,172 @@ candidate_vars <- candidate_vars[!(candidate_vars %in% constant_cols)]
 
 model_dt <- as.data.frame(model_dt)
 
+haven::write_dta(geosurvey_dt[, c("lnrpc_tot_cons",
+                                  candidate_vars,
+                                  "weight",
+                                  "admin2Pcod"), with = FALSE],
+                 "data-raw/model.dta")
 
 
 ################################################################################
 ############## PREPARE FOR MODEL SELECTION FOR MIXED MODELS ####################
 ################################################################################
+### perform the model selection with the lasso linear model
+stata_vars <- countrymodel_select_stata(dt = geosurvey_dt[, c("lnrpc_tot_cons",
+                                                              candidate_vars,
+                                                              "hhweight",
+                                                              "admin2Pcod"), with = FALSE],
+                                        xvars = candidate_vars,
+                                        y = "lnrpc_tot_cons",
+                                        weights = "hhweight",
+                                        selection = "BIC",
+                                        stata_path = "D:/Programs/Stata18/StataMP-64",
+                                        stata_vnum = 18,
+                                        cluster_id = "admin2Pcod")
 
-### remove the multicollinear variables real quick
 
-lmmodel_check <- lm(lnrpc_tot_cons ~ ., data = model_dt[, c(candidate_vars, "lnrpc_tot_cons")])
 
-### remove the NAs
-cand_vars <- names(lmmodel_check$coefficients[is.na(lmmodel_check$coefficients) == FALSE])
-cand_vars <- cand_vars[!(cand_vars %in% "(Intercept)")]
-
-# ### add all the BDI admin1 areas except 1
-# cand_vars <- c(cand_vars, candidate_vars[grepl("BDI", candidate_vars)])
+# ### remove the multicollinear variables real quick
 #
-# cand_vars <- cand_vars[!(cand_vars %in% "BDI018")]
-
-lmmodel_check <- lm(lnrpc_tot_cons ~ ., data = model_dt[, c(cand_vars,
-                                                           "lnrpc_tot_cons")])
-
-scale_model_dt <- as.data.frame(scale(geosurvey_dt[, cand_vars, with = F]))
-
-scale_model_dt <- cbind(scale_model_dt, geosurvey_dt[, c("lnrpc_tot_cons", "targetarea_codes")])
-
-dt <- cbind(scale_model_dt, geosurvey_dt[, colnames(geosurvey_dt)[grepl("BDI", colnames(geosurvey_dt))], with = F])
-
-### model selection with lasso for mixed effects models
-pql <- glmmPQL(lnrpc_tot_cons ~ 1,
-               random = list(targetarea_codes = ~1),
-               family = "gaussian",
-               data = dt)
-
-lambda <- seq(2000, 0, by = -50)
-
-bic_vector <- rep(Inf, length(lambda))
-
-delta_start <- c(as.numeric(pql$coefficients$fixed),
-                 rep(0, length(cand_vars) + 18),
-                 as.numeric(t(pql$coefficients$random$targetarea_codes)))
-
-q_start <- as.numeric(VarCorr(pql)[1,1])
-
-
-dt$targetarea_codes <- as.factor(dt$targetarea_codes)
-# ### now lets find optimal lambda
-# for (j in 1:10){
+# lmmodel_check <- lm(lnrpc_tot_cons ~ ., data = model_dt[, c(candidate_vars, "lnrpc_tot_cons")])
 #
-#   print(paste("Iteration", j, sep = ""))
+# ### remove the NAs
+# cand_vars <- names(lmmodel_check$coefficients[is.na(lmmodel_check$coefficients) == FALSE])
+# cand_vars <- cand_vars[!(cand_vars %in% "(Intercept)")]
 #
-#   glm1 <- try(
+# # ### add all the BDI admin1 areas except 1
+# # cand_vars <- c(cand_vars, candidate_vars[grepl("BDI", candidate_vars)])
+# #
+# # cand_vars <- cand_vars[!(cand_vars %in% "BDI018")]
 #
-#     glmmLasso(as.formula(paste("lnpc_tot_cons ~ ", paste(cand_vars, collapse= "+"))),
-#               rnd = list(targetarea_codes = ~1),
-#               family = gaussian(link = "identity"),
-#               data = na.omit(dt),
-#               lambda = lambda[j],
-#               switch.NR = TRUE,
-#               final.re = TRUE,
-#               control = list(start = delta_start,
-#                              q_start = q_start)),
-#     silent = TRUE
-#   )
+# lmmodel_check <- lm(lnrpc_tot_cons ~ ., data = model_dt[, c(cand_vars,
+#                                                            "lnrpc_tot_cons")])
 #
-#   if(class(glm1) != "try-error"){
+# scale_model_dt <- as.data.frame(scale(geosurvey_dt[, cand_vars, with = F]))
 #
-#     bic_vector[j] <- glm1$bic
+# scale_model_dt <- cbind(scale_model_dt, geosurvey_dt[, c("lnrpc_tot_cons", "targetarea_codes")])
 #
-#   }
+# dt <- cbind(scale_model_dt, geosurvey_dt[, colnames(geosurvey_dt)[grepl("BDI", colnames(geosurvey_dt))], with = F])
+#
+# ### model selection with lasso for mixed effects models
+# pql <- glmmPQL(lnrpc_tot_cons ~ 1,
+#                random = list(targetarea_codes = ~1),
+#                family = "gaussian",
+#                data = dt)
+#
+# lambda <- seq(2000, 0, by = -50)
+#
+# bic_vector <- rep(Inf, length(lambda))
+#
+# delta_start <- c(as.numeric(pql$coefficients$fixed),
+#                  rep(0, length(cand_vars) + 18),
+#                  as.numeric(t(pql$coefficients$random$targetarea_codes)))
+#
+# q_start <- as.numeric(VarCorr(pql)[1,1])
 #
 #
-# }
-
-
-# future_map(lambda, ~parallel_find_optlambda(.x, dt, cand_vars, delta_start, q_start))
-parallelMap::parallelStart(mode = "socket",
-                           cpus = length(lambda),
-                           show.info = FALSE)
-
-parallel::clusterSetRNGStream()
-
-parallelMap::parallelLibrary("nlme")
-parallelMap::parallelLibrary("glmmLasso")
-
-
-optlambda <- parallelMap::parallelLapply(xs = lambda,
-                                         fun = find_optlambda,
-                                         dt = dt,
-                                         cand_vars = cand_vars,
-                                         delta_start = delta_start,
-                                         q_start = q_start)
-
-parallelMap::parallelStop()
-
-
-lasso_model <- glmmLasso(fix = as.formula(paste("lnrpc_tot_cons ~ ", paste(cand_vars, collapse= "+"))),
-                         rnd = list(targetarea_codes = ~1),
-                         family = gaussian(link = "identity"),
-                         data = na.omit(dt),
-                         lambda = lambda[which.min(optlambda)],
-                         switch.NR = TRUE,
-                         final.re = TRUE,
-                         control=list(start = delta_start,
-                                      q_start = q_start))
-
-### select only indicators that are significant
-lasso_output <- summary(lasso_model)
-
-lasso_output <- as.data.frame(lasso_output$coefficients)
-
-lasso_output$variable <- rownames(lasso_output)
-
-selvars_dt <- lasso_output[abs(lasso_output$p.value) <= 0.1 & is.na(lasso_output$z.value) == FALSE,]
-
-### ok lets estimate the poverty map
-selvars_list <- selvars_dt$variable[!selvars_dt$variable %in% "(Intercept)"]
-
-selvars_bdilist <- c(selvars_list,
-                     candidate_vars[grepl("BDI", candidate_vars)])
-
-### compute the unit context model
-#### estimate the model
-
+# dt$targetarea_codes <- as.factor(dt$targetarea_codes)
+# # ### now lets find optimal lambda
+# # for (j in 1:10){
+# #
+# #   print(paste("Iteration", j, sep = ""))
+# #
+# #   glm1 <- try(
+# #
+# #     glmmLasso(as.formula(paste("lnpc_tot_cons ~ ", paste(cand_vars, collapse= "+"))),
+# #               rnd = list(targetarea_codes = ~1),
+# #               family = gaussian(link = "identity"),
+# #               data = na.omit(dt),
+# #               lambda = lambda[j],
+# #               switch.NR = TRUE,
+# #               final.re = TRUE,
+# #               control = list(start = delta_start,
+# #                              q_start = q_start)),
+# #     silent = TRUE
+# #   )
+# #
+# #   if(class(glm1) != "try-error"){
+# #
+# #     bic_vector[j] <- glm1$bic
+# #
+# #   }
+# #
+# #
+# # }
+#
+#
+# # future_map(lambda, ~parallel_find_optlambda(.x, dt, cand_vars, delta_start, q_start))
+# parallelMap::parallelStart(mode = "socket",
+#                            cpus = length(lambda),
+#                            show.info = FALSE)
+#
+# parallel::clusterSetRNGStream()
+#
+# parallelMap::parallelLibrary("nlme")
+# parallelMap::parallelLibrary("glmmLasso")
+#
+#
+# optlambda <- parallelMap::parallelLapply(xs = lambda,
+#                                          fun = find_optlambda,
+#                                          dt = dt,
+#                                          cand_vars = cand_vars,
+#                                          delta_start = delta_start,
+#                                          q_start = q_start)
+#
+# parallelMap::parallelStop()
+#
+#
+# lasso_model <- glmmLasso(fix = as.formula(paste("lnrpc_tot_cons ~ ", paste(cand_vars, collapse= "+"))),
+#                          rnd = list(targetarea_codes = ~1),
+#                          family = gaussian(link = "identity"),
+#                          data = na.omit(dt),
+#                          lambda = lambda[which.min(optlambda)],
+#                          switch.NR = TRUE,
+#                          final.re = TRUE,
+#                          control=list(start = delta_start,
+#                                       q_start = q_start))
+#
+# ### select only indicators that are significant
+# lasso_output <- summary(lasso_model)
+#
+# lasso_output <- as.data.frame(lasso_output$coefficients)
+#
+# lasso_output$variable <- rownames(lasso_output)
+#
+# selvars_dt <- lasso_output[abs(lasso_output$p.value) <= 0.1 & is.na(lasso_output$z.value) == FALSE,]
+#
+# ### ok lets estimate the poverty map
+# selvars_list <- selvars_dt$variable[!selvars_dt$variable %in% "(Intercept)"]
+#
+# selvars_bdilist <- c(selvars_list,
+#                      candidate_vars[grepl("BDI", candidate_vars)])
+#
+# ### compute the unit context model
+# #### estimate the model
+#
 grid_dt <- cbind(grid_dt,
                  as.data.table(dummify(grid_dt$admin1Pcod_x)))
 
 grid_dt[, targetarea_codes := as.integer(substr(admin2Pcod, 4, nchar(admin2Pcod)))]
+#
+# selvars_bdilist <- selvars_bdilist[!grepl("BDI018", selvars_bdilist)]
+#
+# #### use the stata lasso model for the estimation
+# stata_selvars_list <- readLines("model.txt")
+#
+# stata_selvars_list <- unlist(strsplit(stata_selvars_list, " "))
+#
+# setnames(grid_dt, invalid_names, valid_names)
 
-selvars_bdilist <- selvars_bdilist[!grepl("BDI018", selvars_bdilist)]
-
-unit_model <- povmap::ebp(fixed = as.formula(paste("rpc_tot_cons ~ ", paste(selvars_list, collapse= "+"))),
-                          pop_data = as.data.frame(na.omit(grid_dt[,c(selvars_list,
+unit_model <- povmap::ebp(fixed = as.formula(paste("rpc_tot_cons ~ ", paste(stata_vars, collapse= "+"))),
+                          pop_data = as.data.frame(na.omit(grid_dt[,c(stata_vars,
                                                                       "targetarea_codes",
                                                                       "bdi_ppp_2020_UNadj_constrained"),
                                                                    with = FALSE])),
                           pop_domains = "targetarea_codes",
                           smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin2Pcod),
                                                                         c("rpc_tot_cons",
-                                                                          selvars_list,
+                                                                          stata_vars,
                                                                           "targetarea_codes",
                                                                           "hhweight"),
                                                                         with = FALSE])),
@@ -582,6 +622,824 @@ unit_model <- povmap::ebp(fixed = as.formula(paste("rpc_tot_cons ~ ", paste(selv
                           cpus = 30,
                           MSE = TRUE,
                           na.rm = TRUE)
+
+### quickly create labels
+setnames(grid_dt,
+         old = c("admin0Pcod_x", "admin1Pcod_x", "admin2Name_x", "area_x"),
+         new = c("admin0Pcod", "admin1Pcod", "admin2Name", "area"))
+
+
+grid_dt <-
+expss::apply_labels(grid_dt,
+                    admin2Pcod = "Commune/Target Area Codes",
+                    admin4Pcode = "WorldPop Grid idenitifer code",
+                    admin3Pcode = "Grid-Level identifier",
+                    admin0Pcod = "Country Code",
+                    admin1Pcod = "Region Codes",
+                    admin2Name = "Commune/Target Area Names",
+                    area = "Anonymous Area",
+                    poly_area = "Tesselated Grid Area",
+                    ntl_all_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2015",
+                    ntl_all_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2016",
+                    ntl_all_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2017",
+                    ntl_all_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2018",
+                    ntl_all_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2019",
+                    ntl_all_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2020",
+                    ntl_built_up_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2015",
+                    ntl_built_up_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2016",
+                    ntl_built_up_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2017",
+                    ntl_built_up_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2018",
+                    ntl_built_up_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2019",
+                    ntl_built_up_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2020",
+                    ntl_small_stl_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2015",
+                    ntl_small_stl_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2016",
+                    ntl_small_stl_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2017",
+                    ntl_small_stl_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2018",
+                    ntl_small_stl_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2019",
+                    ntl_small_stl_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2020",
+                    ntl_hamlet_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2015",
+                    ntl_hamlet_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2016",
+                    ntl_hamlet_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2017",
+                    ntl_hamlet_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2018",
+                    ntl_hamlet_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2019",
+                    ntl_hamlet_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2020",
+                    pop_density_2015 = "2015 Population density",
+                    pop_density_2016 = "2016 Population density",
+                    pop_density_2017 = "2017 Population density",
+                    pop_density_2018 = "2018 Population density",
+                    pop_density_2019 = "2019 Population density",
+                    pop_density_2020 = "2020 Population density",
+                    lightscore_sy_2012 = "2012 Probability of electrification",
+                    prplit_conf90_sy_2012 = "2012 Proportion of nights a settlement is brighter than uninhabited areas",
+                    lightscore_sy_2019 = "2019 Probability of electrification",
+                    prplit_conf90_sy_2019 = "2019 Proportion of nights a settlement is brighter than uninhabited areas",
+                    y2017_Water = "Proportion area covered by water in 2017",
+                    y2017_Trees = "Proportion area covered by trees in 2017",
+                    y2017_Flooded_vegetation = "Proportion area covered by flooded vegetation in 2017",
+                    y2017_Crops = "Proportion area covered by crops in 2017",
+                    y2017_Built_Area = "Proportion area covered by built area in 2017",
+                    y2017_Bare_ground = "Proportion area covered by bare ground in 2017",
+                    y2017_Snow_Ice = "Proportion area covered by snow and ice in 2017",
+                    y2017_Clouds = "Proportion area covered by clouds in 2017",
+                    y2017_Rangeland = "Proportion area covered by rangeland in 2017",
+                    y2018_Water = "Proportion area covered by water in 2018",
+                    y2018_Trees = "Proportion area covered by trees in 2018",
+                    y2018_Flooded_vegetation = "Proportion area covered by flooded vegetation in 2018",
+                    y2018_Crops = "Proportion area covered by crops in 2018",
+                    y2018_Built_Area = "Proportion area covered by built area in 2018",
+                    y2018_Bare_ground = "Proportion area covered by bare ground in 2018",
+                    y2018_Snow_Ice = "Proportion area covered by snow and ice in 2018",
+                    y2018_Clouds = "Proportion area covered by clouds in 2018",
+                    y2018_Rangeland = "Proportion area covered by rangeland in 2018",
+                    y2019_Water = "Proportion area covered by water in 2019",
+                    y2019_Trees = "Proportion area covered by trees in 2019",
+                    y2019_Flooded_vegetation = "Proportion area covered by flooded vegetation in 2019",
+                    y2019_Crops = "Proportion area covered by crops in 2019",
+                    y2019_Built_Area = "Proportion area covered by built area in 2019",
+                    y2019_Bare_ground = "Proportion area covered by bare ground in 2019",
+                    y2019_Snow_Ice = "Proportion area covered by snow and ice in 2019",
+                    y2019_Clouds = "Proportion area covered by clouds in 2019",
+                    y2019_Rangeland = "Proportion area covered by rangeland in 2019",
+                    y2020_Water = "Proportion area covered by water in 2020",
+                    y2020_Trees = "Proportion area covered by trees in 2020",
+                    y2020_Flooded_vegetation = "Proportion area covered by flooded vegetation in 2020",
+                    y2020_Crops = "Proportion area covered by crops in 2020",
+                    y2020_Built_Area = "Proportion area covered by built area in 2020",
+                    y2020_Bare_ground = "Proportion area covered by bare ground in 2020",
+                    y2020_Snow_Ice = "Proportion area covered by snow and ice in 2020",
+                    y2020_Clouds = "Proportion area covered by clouds in 2020",
+                    y2020_Rangeland = "Proportion area covered by rangeland in 2020",
+                    building_sum = "Number of buildings within WorldPop grid containing Household",
+                    building_density = "Number of buildings per square km lived area",
+                    building_mean_area = "Mean building areas within WorldPop grid containing Household",
+                    building_mean_length = "Mean building lengths within WorldPop grid containing Household",
+                    building_mean_urban = "Urbanization rate within WorldPop grid containing Household",
+                    pdsi_mean2018="Palmer Drought Severity Index mean 2018",
+                    aet_mean2018="Actual evapotranspiration  mean 2018",
+                    def_mean2018="Climate water deficit mean 2018",
+                    pr_mean2018="Precipitation accumulation mean 2018",
+                    ro_mean2018= "Runoff mean 2018",
+                    soil_mean2018="Soil moisture 2018",
+                    tmmn_mean2018= "Minimum temperature mean 2018",
+                    tmmx_mean2018= "Maximum temperature mean 2018",
+                    swe_mean2018= "Snow water equivalent mean 2018",
+                    srad_mean2018= "Downward surface shortwave radiation mean 2018",
+                    pdsi_mean2014="Palmer Drought Severity Index mean 2014",
+                    pdsi_mean2014="Palmer Drought Severity Index mean 2014",
+                    aet_mean2014="Actual evapotranspiration mean 2014",
+                    def_mean2014="Climate water deficit mean 2014",
+                    pr_mean2014="Precipitation accumulation mean 2014",
+                    ro_mean2014= "Runoff mean 2014",
+                    soil_mean2014="Soil moisture mean 2014",
+                    tmmn_mean2014= "Minimum temperature mean 2014",
+                    tmmx_mean2014= "Maximum temperature mean 2014",
+                    swe_mean2014= "Snow water equivalent mean 2014",
+                    srad_mean2014= "Downward surface shortwave radiation mean 2014",
+                    pdsi_mean2009="Palmer Drought Severity Index mean 2009",
+                    aet_mean2009="Actual evapotranspiration  mean 2009",
+                    def_mean2009="Climate water deficit mean 2009",
+                    pr_mean2009="Precipitation accumulation mean 2009",
+                    ro_mean2009= "Runoff mean 2009",
+                    soil_mean2009="Soil moisture  mean 2009",
+                    tmmn_mean2009= "Minimum temperature mean 2009",
+                    tmmx_mean2009= "Maximum temperature mean 2009",
+                    swe_mean2009= "Snow water equivalent mean 2009",
+                    srad_mean2009= "Downward surface shortwave radiation mean 2009",
+                    pdsi_mean99_19="Palmer Drought Severity Index mean 1999-2019",
+                    aet_mean99_19="Actual evapotranspiration  mean 1999-2019",
+                    def_mean99_19="Climate water deficit mean 1999-2019",
+                    pr_mean99_19="Precipitation accumulation mean 1999-2019",
+                    ro_mean99_19= "Runoff  mean 1999-2019",
+                    soil_mean99_19="Soil moisture mean 1999-2019",
+                    tmmn_mean99_19= "Minimum temperature mean 1999-2019",
+                    tmmx_mean99_19= "Maximum temperature mean 1999-2019",
+                    swe_mean99_19= "Snow water equivalent mean 1999-2019",
+                    srad_mean99_19= "Downward surface shortwave radiation 1999-2019",
+                    pdsi_change_5="Five year change in Palmer Drought Severity Index mean",
+                    aet_change_5="Five year change in Actual evapotranspiration mean",
+                    def_change_5="Five year change in Climate water deficit mean",
+                    pr_change_5="Five year change in Precipitation accumulation mean",
+                    ro_change_5= "Five year change in Runoff mean",
+                    soil_change_5="Five year change in Soil moisture mean",
+                    tmmn_change_5= "Five year change in Minimum temperature mean",
+                    tmmx_change_5= "Five year change in Maximum temperature mean",
+                    swe_change_5= "Five year change in Snow water equivalent mean",
+                    srad_change_5= "Five year change in Downward surface shortwave radiation mean",
+                    pdsi_change_10="Ten year change in Palmer Drought Severity Index mean mean",
+                    aet_change_10="Ten year change in Actual evapotranspiration mean",
+                    def_change_10="Ten year change in Climate water deficit mean",
+                    pr_change_10="Ten year change in Precipitation accumulation mean",
+                    ro_change_10= "Ten year change in Runoff mean",
+                    soil_change_10="Ten year change in Soil moisture mean",
+                    tmmn_change_10= "Ten year change in Minimum temperature mean",
+                    tmmx_change_10= "Ten year change in Maximum temperature mean",
+                    swe_change_10= "Ten year change in Snow water equivalent mean",
+                    srad_change_10= "Ten year change in Downward surface shortwave radiation mean",
+                    pdsi_hist_dev="Historical deviation from the mean of Palmer Drought Severity Index",
+                    aet_hist_dev="Historical deviation from the mean of Actual evapotranspiration",
+                    def_hist_dev="Historical deviation from the mean of Climate water deficit",
+                    pr_hist_dev="Historical deviation from the mean of Precipitation accumulation",
+                    ro_hist_dev= "Historical deviation from the mean of Runoff",
+                    soil_hist_dev="Historical deviation from the mean of Soil moisture",
+                    tmmn_hist_dev= "Historical deviation from the mean of Minimum temperature",
+                    tmmx_hist_dev= "Historical deviation from the mean of Maximum temperature",
+                    swe_hist_dev= "Historical deviation from the mean of Snow water equivalent",
+                    srad_hist_dev= "Historical deviation from the mean of Downward surface shortwave radiation",
+                    pdsi_sq_hist_dev="Squared historical deviation from the mean of Palmer Drought Severity Index",
+                    aet_sq_hist_dev="Squared historical deviation from the mean of Actual evapotranspiration",
+                    def_sq_hist_dev="Squared historical deviation from the mean of Climate water deficit",
+                    pr_sq_hist_dev="Squared historical deviation from the mean of Precipitation accumulation",
+                    ro_sq_hist_dev= "Squared historical deviation from the mean of Runoff",
+                    soil_sq_hist_dev="Squared historical deviation from the mean of Soil moisture",
+                    tmmn_sq_hist_dev= "Squared historical deviation from the mean of Minimum temperature",
+                    tmmx_sq_hist_dev= "Squared historical deviation from the mean of Maximum temperature",
+                    swe_sq_hist_dev= "Squared historical deviation from the mean of Snow water equivalent",
+                    srad_sq_hist_dev= "Squared historical deviation from the mean of Downward surface shortwave radiation",
+                    meta_wealth_index = "Facebook Meta Wealth Index",
+                    BU2016DHS_ANANEMWANY = "% women aged 15-49 with anemia (DHS 2016)",
+                    BU2016DHS_CHVAC1CVCD = "% children 12-23 mths with vaccination card (DHS 2016)",
+                    BU2016DHS_CHVACCCBAS = "% children 12-23 mths with 8 basic vaccinations (DHS 2016)",
+                    BU2016DHS_CHVACCCDP1 = "% children 12-23 mths with DPT1 vaccination (DHS 2016)",
+                    BU2016DHS_CHVACCCDP3 = "% children 12-23 mths with 3rd dose DPT (DHS 2016)",
+                    BU2016DHS_CHVACSCMSL = "% children 12-23 mths received Measles vaccination (DHS 2016)",
+                    BU2016DHS_CNNUTSCHA2 = "% children under age 5 stunted (DHS 2016)",
+                    BU2016DHS_EDLITRMLIT = "% men aged 15-49 who are literate (DHS 2016)",
+                    BU2016DHS_EDLITRWLIT = "% women aged 15-49 who are literate (DHS 2016)",
+                    BU2016DHS_FPCUSMWMOD = "% currently married or in union women using modern contraception (DHS 2016)",
+                    BU2016DHS_FPNADMWPDM = "ratio of currently married women using FP to FP demand from same group (DHS 2016)",
+                    BU2016DHS_FPNADMWUNT = "% currently married or in union women with an unmet need for FP (DHS 2016)",
+                    BU2016DHS_MLITNAPACC = "% of HH population sleeping under an ITN if ITN can be used by <=2 people (DHS 2016)",
+                    BU2016DHS_RHANCNWN4P = "% women had live birth in last 5 years who had 4+ antenatal care visits (DHS 2016)",
+                    BU2016DHS_RHDELPCDHF = "% live births in the 5 years preceding DHS 2016 delivered at a health facility (DHS 2016)",
+                    BU2016DHS_WSSRCEPIMP = "% of population living in HHs with improved main source of drinking water (DHS 2016)",
+                    BU2016DHS_WSTLETPNFC = "% of population living in HHs with main type of toilet is no facility (DHS 2016)",
+                    normal_ntl_mean2015 = "2015 Average Night Luminosity (all areas unfiltered)",
+                    normal_ntl_mean2016 = "2016 Average Night Luminosity (all areas unfiltered)",
+                    normal_ntl_mean2017 = "2017 Average Night Luminosity (all areas unfiltered)",
+                    normal_ntl_mean2018 = "2018 Average Night Luminosity (all areas unfiltered)",
+                    normal_ntl_mean2019 = "2019 Average Night Luminosity (all areas unfiltered)",
+                    normal_ntl_mean2020 = "2020 Average Night Luminosity (all areas unfiltered)",
+                    ntl_all_growth = "Growth in Night Limonsity 2015 to 2020 (all areas unfiltered)",
+                    ntl_built_up_growth = "Growth in Night Limonsity 2015 to 2020 (built up areas)",
+                    ntl_small_stl_growth = "Growth in Night Limonsity 2015 to 2020 (small settlements)",
+                    ntl_hamlet_growth = "Growth in Night Limonsity 2015 to 2020 (hamlets)",
+                    log_pop_density_growth = "Growth in Population Density 2015 to 2020",
+                    water_growth = "Change in water coverfraction 2017 to 2020",
+                    trees_growth = "Change in tree coverfraction 2017 to 2020",
+                    floodedveg_growth = "Change in flooded vegetation coverfraction 2017 to 2020",
+                    crops_growth = "Change in crop coverfraction 2017 to 2020",
+                    builtarea_growth = "Change in built up area 2017 to 2020",
+                    bareground_growth = "Change in bareground coverfraction 2017 to 2020",
+                    snowice_growth = "Change in snow ice coverfraction 2017 to 2020",
+                    clouds_growth = "Change in cloud cover 2017 to 2020",
+                    rangeland_growth = "Change in rangeland cover fraction 2017 to 2020",
+                    bdi_ppp_2020_UNadj_constrained = "World Pop constrained population 2020",
+                    targetave_ntl_all_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2015 (target area average)",
+                    targetave_ntl_all_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2016 (target area average)",
+                    targetave_ntl_all_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2017 (target area average)",
+                    targetave_ntl_all_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2018 (target area average)",
+                    targetave_ntl_all_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2019 (target area average)",
+                    targetave_ntl_all_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2020 (target area average)",
+                    targetave_ntl_built_up_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2015 (target area average)",
+                    targetave_ntl_built_up_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2016 (target area average)",
+                    targetave_ntl_built_up_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2017 (target area average)",
+                    targetave_ntl_built_up_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2018 (target area average)",
+                    targetave_ntl_built_up_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2019 (target area average)",
+                    targetave_ntl_built_up_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2020 (target area average)",
+                    targetave_ntl_small_stl_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2015 (target area average)",
+                    targetave_ntl_small_stl_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2016 (target area average)",
+                    targetave_ntl_small_stl_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2017 (target area average)",
+                    targetave_ntl_small_stl_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2018 (target area average)",
+                    targetave_ntl_small_stl_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2019 (target area average)",
+                    targetave_ntl_small_stl_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2020 (target area average)",
+                    targetave_ntl_hamlet_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2015 (target area average)",
+                    targetave_ntl_hamlet_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2016 (target area average)",
+                    targetave_ntl_hamlet_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2017 (target area average)",
+                    targetave_ntl_hamlet_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2018 (target area average)",
+                    targetave_ntl_hamlet_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2019 (target area average)",
+                    targetave_ntl_hamlet_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2020 (target area average)",
+                    targetave_pop_density_2015 = "2015 Population density (target area average)",
+                    targetave_pop_density_2016 = "2016 Population density (target area average)",
+                    targetave_pop_density_2017 = "2017 Population density (target area average)",
+                    targetave_pop_density_2018 = "2018 Population density (target area average)",
+                    targetave_pop_density_2019 = "2019 Population density (target area average)",
+                    targetave_pop_density_2020 = "2020 Population density (target area average)",
+                    targetave_lightscore_sy_2012 = "2012 Probability of electrification (target area average)",
+                    targetave_prplit_conf90_sy_2012 = "2012 Proportion of nights a settlement is brighter than uninhabited areas (target area average)",
+                    targetave_lightscore_sy_2019 = "2019 Probability of electrification (target area average)",
+                    targetave_prplit_conf90_sy_2019 = "2019 Proportion of nights a settlement is brighter than uninhabited areas (target area average)",
+                    targetave_2017_Water = "Proportion area covered by water in 2017 (target area average)",
+                    targetave_2017_Trees = "Proportion area covered by trees in 2017 (target area average)",
+                    targetave_2017_fld_veg = "Proportion area covered by flooded vegetation in 2017 (target area average)",
+                    targetave_2017_Crops = "Proportion area covered by crops in 2017 (target area average)",
+                    targetave_2017_Built_Area = "Proportion area covered by built area in 2017 (target area average)",
+                    targetave_2017_Bare_ground = "Proportion area covered by bare ground in 2017 (target area average)",
+                    targetave_2017_Snow_Ice = "Proportion area covered by snow and ice in 2017 (target area average)",
+                    targetave_2017_Clouds = "Proportion area covered by clouds in 2017 (target area average)",
+                    targetave_2017_Rangeland = "Proportion area covered by rangeland in 2017 (target area average)",
+                    targetave_2018_Water = "Proportion area covered by water in 2018 (target area average)",
+                    targetave_2018_Trees = "Proportion area covered by trees in 2018 (target area average)",
+                    targetave_2018_fld_veg = "Proportion area covered by flooded vegetation in 2018 (target area average)",
+                    targetave_2018_Crops = "Proportion area covered by crops in 2018 (target area average)",
+                    targetave_2018_Built_Area = "Proportion area covered by built area in 2018 (target area average)",
+                    targetave_2018_Bare_ground = "Proportion area covered by bare ground in 2018 (target area average)",
+                    targetave_2018_Snow_Ice = "Proportion area covered by snow and ice in 2018 (target area average)",
+                    targetave_2018_Clouds = "Proportion area covered by clouds in 2018 (target area average)",
+                    targetave_2018_Rangeland = "Proportion area covered by rangeland in 2018 (target area average)",
+                    targetave_2019_Water = "Proportion area covered by water in 2019 (target area average)",
+                    targetave_2019_Trees = "Proportion area covered by trees in 2019 (target area average)",
+                    targetave_2019_fld_veg = "Proportion area covered by flooded vegetation in 2019 (target area average)",
+                    targetave_2019_Crops = "Proportion area covered by crops in 2019 (target area average)",
+                    targetave_2019_Built_Area = "Proportion area covered by built area in 2019 (target area average)",
+                    targetave_2019_Bare_ground = "Proportion area covered by bare ground in 2019 (target area average)",
+                    targetave_2019_Snow_Ice = "Proportion area covered by snow and ice in 2019 (target area average)",
+                    targetave_2019_Clouds = "Proportion area covered by clouds in 2019 (target area average)",
+                    targetave_2019_Rangeland = "Proportion area covered by rangeland in 2019 (target area average)",
+                    targetave_2020_Water = "Proportion area covered by water in 2020 (target area average)",
+                    targetave_2020_Trees = "Proportion area covered by trees in 2020 (target area average)",
+                    targetave_2020_fld_veg = "Proportion area covered by flooded vegetation in 2020 (target area average)",
+                    targetave_2020_Crops = "Proportion area covered by crops in 2020 (target area average)",
+                    targetave_2020_Built_Area = "Proportion area covered by built area in 2020 (target area average)",
+                    targetave_2020_Bare_ground = "Proportion area covered by bare ground in 2020 (target area average)",
+                    targetave_2020_Snow_Ice = "Proportion area covered by snow and ice in 2020 (target area average)",
+                    targetave_2020_Clouds = "Proportion area covered by clouds in 2020 (target area average)",
+                    targetave_2020_Rangeland = "Proportion area covered by rangeland in 2020 (target area average)",
+                    targetave_building_sum = "Number of buildings within WorldPop grid containing Household (target area average)",
+                    targetave_building_density = "Number of buildings per square km lived area (target area average)",
+                    targetave_building_mean_area = "Mean building areas within WorldPop grid containing Household (target area average)",
+                    targetave_building_mean_length = "Mean building lengths within WorldPop grid containing Household (target area average)",
+                    targetave_building_mean_urban = "Urbanization rate within WorldPop grid containing Household (target area average)",
+                    targetave_pdsi_mean2018="Palmer Drought Severity Index mean 2018 (target area average)",
+                    targetave_aet_mean2018="Actual evapotranspiration mean 2018 (target area average)",
+                    targetave_def_mean2018="Climate water deficit mean 2018 (target area average)",
+                    targetave_pr_mean2018="Precipitation accumulation mean 2018 (target area average)",
+                    targetave_ro_mean2018= "Runoff mean 2018 (target area average)",
+                    targetave_soil_mean2018="Soil moisture 2018 (target area average)",
+                    targetave_tmmn_mean2018= "Minimum temperature mean 2018 (target area average)",
+                    targetave_tmmx_mean2018= "Maximum temperature mean 2018 (target area average)",
+                    targetave_swe_mean2018= "Snow water equivalent mean 2018 (target area average)",
+                    targetave_srad_mean2018= "Downward surface shortwave radiation mean 2018 (target area average)",
+                    targetave_pdsi_mean2014="Palmer Drought Severity Index mean 2014 (target area average)",
+                    targetave_pdsi_mean2014="Palmer Drought Severity Index mean 2014 (target area average)",
+                    targetave_aet_mean2014="Actual evapotranspiration mean 2014 (target area average)",
+                    targetave_def_mean2014="Climate water deficit mean 2014 (target area average)",
+                    targetave_pr_mean2014="Precipitation accumulation mean 2014 (target area average)",
+                    targetave_ro_mean2014= "Runoff mean 2014 (target area average)",
+                    targetave_soil_mean2014="Soil moisture mean 2014 (target area average)",
+                    targetave_tmmn_mean2014= "Minimum temperature mean 2014 (target area average)",
+                    targetave_tmmx_mean2014= "Maximum temperature mean 2014 (target area average)",
+                    targetave_swe_mean2014= "Snow water equivalent mean 2014 (target area average)",
+                    targetave_srad_mean2014= "Downward surface shortwave radiation mean 2014 (target area average)",
+                    targetave_pdsi_mean2009="Palmer Drought Severity Index mean 2009 (target area average)",
+                    targetave_aet_mean2009="Actual evapotranspiration mean 2009 (target area average)",
+                    targetave_def_mean2009="Climate water deficit mean 2009 (target area average)",
+                    targetave_pr_mean2009="Precipitation accumulation mean 2009 (target area average)",
+                    targetave_ro_mean2009= "Runoff mean 2009 (target area average)",
+                    targetave_soil_mean2009="Soil moisture  mean 2009 (target area average)",
+                    targetave_tmmn_mean2009= "Minimum temperature mean 2009 (target area average)",
+                    targetave_tmmx_mean2009= "Maximum temperature mean 2009 (target area average)",
+                    targetave_swe_mean2009= "Snow water equivalent mean 2009 (target area average)",
+                    targetave_srad_mean2009= "Downward surface shortwave radiation mean 2009 (target area average)",
+                    targetave_pdsi_mean99_19="Palmer Drought Severity Index mean 1999-2019 (target area average)",
+                    targetave_aet_mean99_19="Actual evapotranspiration  mean 1999-2019 (target area average)",
+                    targetave_def_mean99_19="Climate water deficit mean 1999-2019 (target area average)",
+                    targetave_pr_mean99_19="Precipitation accumulation mean 1999-2019 (target area average)",
+                    targetave_ro_mean99_19= "Runoff  mean 1999-2019 (target area average)",
+                    targetave_soil_mean99_19="Soil moisture mean 1999-2019 (target area average)",
+                    targetave_tmmn_mean99_19= "Minimum temperature mean 1999-2019 (target area average)",
+                    targetave_tmmx_mean99_19= "Maximum temperature mean 1999-2019 (target area average)",
+                    targetave_swe_mean99_19= "Snow water equivalent mean 1999-2019 (target area average)",
+                    targetave_srad_mean99_19= "Downward surface shortwave radiation 1999-2019 (target area average)",
+                    targetave_pdsi_change_5="Five year change in Palmer Drought Severity Index mean (target area average)",
+                    targetave_aet_change_5="Five year change in Actual evapotranspiration mean (target area average)",
+                    targetave_def_change_5="Five year change in Climate water deficit mean (target area average)",
+                    targetave_pr_change_5="Five year change in Precipitation accumulation mean (target area average)",
+                    targetave_ro_change_5= "Five year change in Runoff mean (target area average)",
+                    targetave_soil_change_5="Five year change in Soil moisture mean (target area average)",
+                    targetave_tmmn_change_5= "Five year change in Minimum temperature mean (target area average)",
+                    targetave_tmmx_change_5= "Five year change in Maximum temperature mean (target area average)",
+                    targetave_swe_change_5= "Five year change in Snow water equivalent mean (target area average)",
+                    targetave_srad_change_5= "Five year change in Downward surface shortwave radiation mean (target area average)",
+                    targetave_pdsi_change_10="Ten year change in Palmer Drought Severity Index mean mean (target area average)",
+                    targetave_aet_change_10="Ten year change in Actual evapotranspiration mean (target area average)",
+                    targetave_def_change_10="Ten year change in Climate water deficit mean (target area average)",
+                    targetave_pr_change_10="Ten year change in Precipitation accumulation mean (target area average)",
+                    targetave_ro_change_10= "Ten year change in Runoff mean (target area average)",
+                    targetave_soil_change_10="Ten year change in Soil moisture mean (target area average)",
+                    targetave_tmmn_change_10= "Ten year change in Minimum temperature mean (target area average)",
+                    targetave_tmmx_change_10= "Ten year change in Maximum temperature mean (target area average)",
+                    targetave_swe_change_10= "Ten year change in Snow water equivalent mean (target area average)",
+                    targetave_srad_change_10= "Ten year change in Downward surface shortwave radiation mean (target area average)",
+                    targetave_pdsi_hist_dev="Historical deviation from the mean of Palmer Drought Severity Index (target area average)",
+                    targetave_aet_hist_dev="Historical deviation from the mean of Actual evapotranspiration (target area average)",
+                    targetave_def_hist_dev="Historical deviation from the mean of Climate water deficit (target area average)",
+                    targetave_pr_hist_dev="Historical deviation from the mean of Precipitation accumulation (target area average)",
+                    targetave_ro_hist_dev= "Historical deviation from the mean of Runoff (target area average)",
+                    targetave_soil_hist_dev="Historical deviation from the mean of Soil moisture (target area average)",
+                    targetave_tmmn_hist_dev= "Historical deviation from the mean of Minimum temperature (target area average)",
+                    targetave_tmmx_hist_dev= "Historical deviation from the mean of Maximum temperature (target area average)",
+                    targetave_swe_hist_dev= "Historical deviation from the mean of Snow water equivalent (target area average)",
+                    targetave_srad_hist_dev= "Historical deviation from the mean of Downward surface shortwave radiation (target area average)",
+                    targetave_pdsi_sq_hist_dev="Squared historical deviation from the mean of Palmer Drought Severity Index (target area average)",
+                    targetave_aet_sq_hist_dev="Squared historical deviation from the mean of Actual evapotranspiration (target area average)",
+                    targetave_def_sq_hist_dev="Squared historical deviation from the mean of Climate water deficit (target area average)",
+                    targetave_pr_sq_hist_dev="Squared historical deviation from the mean of Precipitation accumulation (target area average)",
+                    targetave_ro_sq_hist_dev= "Squared historical deviation from the mean of Runoff (target area average)",
+                    targetave_soil_sq_hist_dev="Squared historical deviation from the mean of Soil moisture (target area average)",
+                    targetave_tmmn_sq_hist_dev= "Squared historical deviation from the mean of Minimum temperature (target area average)",
+                    targetave_tmmx_sq_hist_dev= "Squared historical deviation from the mean of Maximum temperature (target area average)",
+                    targetave_swe_sq_hist_dev= "Squared historical deviation from the mean of Snow water equivalent (target area average)",
+                    targetave_srad_sq_hist_dev= "Squared historical deviation from the mean of Downward surface shortwave radiation (target area average)",
+                    targetave_meta_wealth_index = "Facebook Meta Wealth Index (target area average)",
+                    targetave_BU2016DHS_ANANEMWANY = "% women aged 15-49 with anemia (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_CHVAC1CVCD = "% children 12-23 mths with vaccination card (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_CHVACCCBAS = "% children 12-23 mths with 8 basic vaccinations (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_CHVACCCDP1 = "% children 12-23 mths with DPT1 vaccination (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_CHVACCCDP3 = "% children 12-23 mths with 3rd dose DPT (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_CHVACSCMSL = "% children 12-23 mths received Measles vaccination (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_CNNUTSCHA2 = "% children under age 5 stunted (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_EDLITRMLIT = "% men aged 15-49 who are literate (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_EDLITRWLIT = "% women aged 15-49 who are literate (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_FPCUSMWMOD = "% currently married or in union women using modern contraception (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_FPNADMWPDM = "ratio of currently married women using FP to FP demand from same group (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_FPNADMWUNT = "% currently married or in union women with an unmet need for FP (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_MLITNAPACC = "% of HH population sleeping under an ITN if ITN can be used by <=2 people (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_RHANCNWN4P = "% women had live birth in last 5 years who had 4+ antenatal care visits (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_RHDELPCDHF = "% live births in the 5 years preceding DHS 2016 delivered at a health facility (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_WSSRCEPIMP = "% of population living in HHs with improved main source of drinking water (DHS 2016) (target area average)",
+                    targetave_BU2016DHS_WSTLETPNFC = "% of population living in HHs with main type of toilet is no facility (DHS 2016) (target area average)",
+                    targetave_normal_ntl_mean2015 = "2015 Average Night Luminosity (all areas unfiltered) (target area average)",
+                    targetave_normal_ntl_mean2016 = "2016 Average Night Luminosity (all areas unfiltered) (target area average)",
+                    targetave_normal_ntl_mean2017 = "2017 Average Night Luminosity (all areas unfiltered) (target area average)",
+                    targetave_normal_ntl_mean2018 = "2018 Average Night Luminosity (all areas unfiltered) (target area average)",
+                    targetave_normal_ntl_mean2019 = "2019 Average Night Luminosity (all areas unfiltered) (target area average)",
+                    targetave_normal_ntl_mean2020 = "2020 Average Night Luminosity (all areas unfiltered) (target area average)",
+                    BDI001 = "Bubanza Dummy",
+                    BDI002 = "Bujumbura Rural Dummy",
+                    BDI003 = "Bururi Dummy",
+                    BDI004 = "Cankuzo Dummy",
+                    BDI005 = "Cibitoke Dummy",
+                    BDI006 = "Gitega Dummy",
+                    BDI007 = "Karuzi Dummy",
+                    BDI008 = "Kayanza Dummy",
+                    BDI009 = "Kirundo Dummy",
+                    BDI010 = "Makamba Dummy",
+                    BDI011 = "Muramvya Dummy",
+                    BDI012 = "Muyinga Dummy",
+                    BDI013 = "Mwaro Dummy",
+                    BDI014 = "Ngozi Dummy",
+                    BDI015 = "Rutana Dummy",
+                    BDI016 = "Ruyigi Dummy",
+                    BDI017 = "Bujumbura Mairie Dummy",
+                    BDI018 = "Rumonge Dummy"
+)
+
+
+geosurvey_dt <-
+  expss::apply_labels(geosurvey_dt,
+                      admin2Pcod = "Commune/Target Area Codes",
+                      admin4Pcode = "WorldPop Grid idenitifer code",
+                      admin3Pcode = "Grid-Level identifier",
+                      admin0Pcod = "Country Code",
+                      admin1Pcod = "Region Codes",
+                      admin2Name = "Commune/Target Area Names",
+                      area = "Anonymous Area",
+                      poly_area = "Tesselated Grid Area",
+                      ntl_all_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2015",
+                      ntl_all_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2016",
+                      ntl_all_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2017",
+                      ntl_all_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2018",
+                      ntl_all_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2019",
+                      ntl_all_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2020",
+                      ntl_built_up_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2015",
+                      ntl_built_up_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2016",
+                      ntl_built_up_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2017",
+                      ntl_built_up_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2018",
+                      ntl_built_up_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2019",
+                      ntl_built_up_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2020",
+                      ntl_small_stl_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2015",
+                      ntl_small_stl_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2016",
+                      ntl_small_stl_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2017",
+                      ntl_small_stl_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2018",
+                      ntl_small_stl_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2019",
+                      ntl_small_stl_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2020",
+                      ntl_hamlet_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2015",
+                      ntl_hamlet_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2016",
+                      ntl_hamlet_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2017",
+                      ntl_hamlet_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2018",
+                      ntl_hamlet_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2019",
+                      ntl_hamlet_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2020",
+                      pop_density_2015 = "2015 Population density",
+                      pop_density_2016 = "2016 Population density",
+                      pop_density_2017 = "2017 Population density",
+                      pop_density_2018 = "2018 Population density",
+                      pop_density_2019 = "2019 Population density",
+                      pop_density_2020 = "2020 Population density",
+                      lightscore_sy_2012 = "2012 Probability of electrification",
+                      prplit_conf90_sy_2012 = "2012 Proportion of nights a settlement is brighter than uninhabited areas",
+                      lightscore_sy_2019 = "2019 Probability of electrification",
+                      prplit_conf90_sy_2019 = "2019 Proportion of nights a settlement is brighter than uninhabited areas",
+                      y2017_Water = "Proportion area covered by water in 2017",
+                      y2017_Trees = "Proportion area covered by trees in 2017",
+                      y2017_Flooded_vegetation = "Proportion area covered by flooded vegetation in 2017",
+                      y2017_Crops = "Proportion area covered by crops in 2017",
+                      y2017_Built_Area = "Proportion area covered by built area in 2017",
+                      y2017_Bare_ground = "Proportion area covered by bare ground in 2017",
+                      y2017_Snow_Ice = "Proportion area covered by snow and ice in 2017",
+                      y2017_Clouds = "Proportion area covered by clouds in 2017",
+                      y2017_Rangeland = "Proportion area covered by rangeland in 2017",
+                      y2018_Water = "Proportion area covered by water in 2018",
+                      y2018_Trees = "Proportion area covered by trees in 2018",
+                      y2018_Flooded_vegetation = "Proportion area covered by flooded vegetation in 2018",
+                      y2018_Crops = "Proportion area covered by crops in 2018",
+                      y2018_Built_Area = "Proportion area covered by built area in 2018",
+                      y2018_Bare_ground = "Proportion area covered by bare ground in 2018",
+                      y2018_Snow_Ice = "Proportion area covered by snow and ice in 2018",
+                      y2018_Clouds = "Proportion area covered by clouds in 2018",
+                      y2018_Rangeland = "Proportion area covered by rangeland in 2018",
+                      y2019_Water = "Proportion area covered by water in 2019",
+                      y2019_Trees = "Proportion area covered by trees in 2019",
+                      y2019_Flooded_vegetation = "Proportion area covered by flooded vegetation in 2019",
+                      y2019_Crops = "Proportion area covered by crops in 2019",
+                      y2019_Built_Area = "Proportion area covered by built area in 2019",
+                      y2019_Bare_ground = "Proportion area covered by bare ground in 2019",
+                      y2019_Snow_Ice = "Proportion area covered by snow and ice in 2019",
+                      y2019_Clouds = "Proportion area covered by clouds in 2019",
+                      y2019_Rangeland = "Proportion area covered by rangeland in 2019",
+                      y2020_Water = "Proportion area covered by water in 2020",
+                      y2020_Trees = "Proportion area covered by trees in 2020",
+                      y2020_Flooded_vegetation = "Proportion area covered by flooded vegetation in 2020",
+                      y2020_Crops = "Proportion area covered by crops in 2020",
+                      y2020_Built_Area = "Proportion area covered by built area in 2020",
+                      y2020_Bare_ground = "Proportion area covered by bare ground in 2020",
+                      y2020_Snow_Ice = "Proportion area covered by snow and ice in 2020",
+                      y2020_Clouds = "Proportion area covered by clouds in 2020",
+                      y2020_Rangeland = "Proportion area covered by rangeland in 2020",
+                      building_sum = "Number of buildings within WorldPop grid containing Household",
+                      building_density = "Number of buildings per square km lived area",
+                      building_mean_area = "Mean building areas within WorldPop grid containing Household",
+                      building_mean_length = "Mean building lengths within WorldPop grid containing Household",
+                      building_mean_urban = "Urbanization rate within WorldPop grid containing Household",
+                      pdsi_mean2018="Palmer Drought Severity Index mean 2018",
+                      aet_mean2018="Actual evapotranspiration  mean 2018",
+                      def_mean2018="Climate water deficit mean 2018",
+                      pr_mean2018="Precipitation accumulation mean 2018",
+                      ro_mean2018= "Runoff mean 2018",
+                      soil_mean2018="Soil moisture 2018",
+                      tmmn_mean2018= "Minimum temperature mean 2018",
+                      tmmx_mean2018= "Maximum temperature mean 2018",
+                      swe_mean2018= "Snow water equivalent mean 2018",
+                      srad_mean2018= "Downward surface shortwave radiation mean 2018",
+                      pdsi_mean2014="Palmer Drought Severity Index mean 2014",
+                      pdsi_mean2014="Palmer Drought Severity Index mean 2014",
+                      aet_mean2014="Actual evapotranspiration mean 2014",
+                      def_mean2014="Climate water deficit mean 2014",
+                      pr_mean2014="Precipitation accumulation mean 2014",
+                      ro_mean2014= "Runoff mean 2014",
+                      soil_mean2014="Soil moisture mean 2014",
+                      tmmn_mean2014= "Minimum temperature mean 2014",
+                      tmmx_mean2014= "Maximum temperature mean 2014",
+                      swe_mean2014= "Snow water equivalent mean 2014",
+                      srad_mean2014= "Downward surface shortwave radiation mean 2014",
+                      pdsi_mean2009="Palmer Drought Severity Index mean 2009",
+                      aet_mean2009="Actual evapotranspiration  mean 2009",
+                      def_mean2009="Climate water deficit mean 2009",
+                      pr_mean2009="Precipitation accumulation mean 2009",
+                      ro_mean2009= "Runoff mean 2009",
+                      soil_mean2009="Soil moisture  mean 2009",
+                      tmmn_mean2009= "Minimum temperature mean 2009",
+                      tmmx_mean2009= "Maximum temperature mean 2009",
+                      swe_mean2009= "Snow water equivalent mean 2009",
+                      srad_mean2009= "Downward surface shortwave radiation mean 2009",
+                      pdsi_mean99_19="Palmer Drought Severity Index mean 1999-2019",
+                      aet_mean99_19="Actual evapotranspiration  mean 1999-2019",
+                      def_mean99_19="Climate water deficit mean 1999-2019",
+                      pr_mean99_19="Precipitation accumulation mean 1999-2019",
+                      ro_mean99_19= "Runoff  mean 1999-2019",
+                      soil_mean99_19="Soil moisture mean 1999-2019",
+                      tmmn_mean99_19= "Minimum temperature mean 1999-2019",
+                      tmmx_mean99_19= "Maximum temperature mean 1999-2019",
+                      swe_mean99_19= "Snow water equivalent mean 1999-2019",
+                      srad_mean99_19= "Downward surface shortwave radiation 1999-2019",
+                      pdsi_change_5="Five year change in Palmer Drought Severity Index mean",
+                      aet_change_5="Five year change in Actual evapotranspiration mean",
+                      def_change_5="Five year change in Climate water deficit mean",
+                      pr_change_5="Five year change in Precipitation accumulation mean",
+                      ro_change_5= "Five year change in Runoff mean",
+                      soil_change_5="Five year change in Soil moisture mean",
+                      tmmn_change_5= "Five year change in Minimum temperature mean",
+                      tmmx_change_5= "Five year change in Maximum temperature mean",
+                      swe_change_5= "Five year change in Snow water equivalent mean",
+                      srad_change_5= "Five year change in Downward surface shortwave radiation mean",
+                      pdsi_change_10="Ten year change in Palmer Drought Severity Index mean mean",
+                      aet_change_10="Ten year change in Actual evapotranspiration mean",
+                      def_change_10="Ten year change in Climate water deficit mean",
+                      pr_change_10="Ten year change in Precipitation accumulation mean",
+                      ro_change_10= "Ten year change in Runoff mean",
+                      soil_change_10="Ten year change in Soil moisture mean",
+                      tmmn_change_10= "Ten year change in Minimum temperature mean",
+                      tmmx_change_10= "Ten year change in Maximum temperature mean",
+                      swe_change_10= "Ten year change in Snow water equivalent mean",
+                      srad_change_10= "Ten year change in Downward surface shortwave radiation mean",
+                      pdsi_hist_dev="Historical deviation from the mean of Palmer Drought Severity Index",
+                      aet_hist_dev="Historical deviation from the mean of Actual evapotranspiration",
+                      def_hist_dev="Historical deviation from the mean of Climate water deficit",
+                      pr_hist_dev="Historical deviation from the mean of Precipitation accumulation",
+                      ro_hist_dev= "Historical deviation from the mean of Runoff",
+                      soil_hist_dev="Historical deviation from the mean of Soil moisture",
+                      tmmn_hist_dev= "Historical deviation from the mean of Minimum temperature",
+                      tmmx_hist_dev= "Historical deviation from the mean of Maximum temperature",
+                      swe_hist_dev= "Historical deviation from the mean of Snow water equivalent",
+                      srad_hist_dev= "Historical deviation from the mean of Downward surface shortwave radiation",
+                      pdsi_sq_hist_dev="Squared historical deviation from the mean of Palmer Drought Severity Index",
+                      aet_sq_hist_dev="Squared historical deviation from the mean of Actual evapotranspiration",
+                      def_sq_hist_dev="Squared historical deviation from the mean of Climate water deficit",
+                      pr_sq_hist_dev="Squared historical deviation from the mean of Precipitation accumulation",
+                      ro_sq_hist_dev= "Squared historical deviation from the mean of Runoff",
+                      soil_sq_hist_dev="Squared historical deviation from the mean of Soil moisture",
+                      tmmn_sq_hist_dev= "Squared historical deviation from the mean of Minimum temperature",
+                      tmmx_sq_hist_dev= "Squared historical deviation from the mean of Maximum temperature",
+                      swe_sq_hist_dev= "Squared historical deviation from the mean of Snow water equivalent",
+                      srad_sq_hist_dev= "Squared historical deviation from the mean of Downward surface shortwave radiation",
+                      meta_wealth_index = "Facebook Meta Wealth Index",
+                      BU2016DHS_ANANEMWANY = "% women aged 15-49 with anemia (DHS 2016)",
+                      BU2016DHS_CHVAC1CVCD = "% children 12-23 mths with vaccination card (DHS 2016)",
+                      BU2016DHS_CHVACCCBAS = "% children 12-23 mths with 8 basic vaccinations (DHS 2016)",
+                      BU2016DHS_CHVACCCDP1 = "% children 12-23 mths with DPT1 vaccination (DHS 2016)",
+                      BU2016DHS_CHVACCCDP3 = "% children 12-23 mths with 3rd dose DPT (DHS 2016)",
+                      BU2016DHS_CHVACSCMSL = "% children 12-23 mths received Measles vaccination (DHS 2016)",
+                      BU2016DHS_CNNUTSCHA2 = "% children under age 5 stunted (DHS 2016)",
+                      BU2016DHS_EDLITRMLIT = "% men aged 15-49 who are literate (DHS 2016)",
+                      BU2016DHS_EDLITRWLIT = "% women aged 15-49 who are literate (DHS 2016)",
+                      BU2016DHS_FPCUSMWMOD = "% currently married or in union women using modern contraception (DHS 2016)",
+                      BU2016DHS_FPNADMWPDM = "ratio of currently married women using FP to FP demand from same group (DHS 2016)",
+                      BU2016DHS_FPNADMWUNT = "% currently married or in union women with an unmet need for FP (DHS 2016)",
+                      BU2016DHS_MLITNAPACC = "% of HH population sleeping under an ITN if ITN can be used by <=2 people (DHS 2016)",
+                      BU2016DHS_RHANCNWN4P = "% women had live birth in last 5 years who had 4+ antenatal care visits (DHS 2016)",
+                      BU2016DHS_RHDELPCDHF = "% live births in the 5 years preceding DHS 2016 delivered at a health facility (DHS 2016)",
+                      BU2016DHS_WSSRCEPIMP = "% of population living in HHs with improved main source of drinking water (DHS 2016)",
+                      BU2016DHS_WSTLETPNFC = "% of population living in HHs with main type of toilet is no facility (DHS 2016)",
+                      normal_ntl_mean2015 = "2015 Average Night Luminosity (all areas unfiltered)",
+                      normal_ntl_mean2016 = "2016 Average Night Luminosity (all areas unfiltered)",
+                      normal_ntl_mean2017 = "2017 Average Night Luminosity (all areas unfiltered)",
+                      normal_ntl_mean2018 = "2018 Average Night Luminosity (all areas unfiltered)",
+                      normal_ntl_mean2019 = "2019 Average Night Luminosity (all areas unfiltered)",
+                      normal_ntl_mean2020 = "2020 Average Night Luminosity (all areas unfiltered)",
+                      ntl_all_growth = "Growth in Night Limonsity 2015 to 2020 (all areas unfiltered)",
+                      ntl_built_up_growth = "Growth in Night Limonsity 2015 to 2020 (built up areas)",
+                      ntl_small_stl_growth = "Growth in Night Limonsity 2015 to 2020 (small settlements)",
+                      ntl_hamlet_growth = "Growth in Night Limonsity 2015 to 2020 (hamlets)",
+                      log_pop_density_growth = "Growth in Population Density 2015 to 2020",
+                      water_growth = "Change in water coverfraction 2017 to 2020",
+                      trees_growth = "Change in tree coverfraction 2017 to 2020",
+                      floodedveg_growth = "Change in flooded vegetation coverfraction 2017 to 2020",
+                      crops_growth = "Change in crop coverfraction 2017 to 2020",
+                      builtarea_growth = "Change in built up area 2017 to 2020",
+                      bareground_growth = "Change in bareground coverfraction 2017 to 2020",
+                      snowice_growth = "Change in snow ice coverfraction 2017 to 2020",
+                      clouds_growth = "Change in cloud cover 2017 to 2020",
+                      rangeland_growth = "Change in rangeland cover fraction 2017 to 2020",
+                      bdi_ppp_2020_UNadj_constrained = "World Pop constrained population 2020",
+                      targetave_ntl_all_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2015 (target area average)",
+                      targetave_ntl_all_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2016 (target area average)",
+                      targetave_ntl_all_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2017 (target area average)",
+                      targetave_ntl_all_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2018 (target area average)",
+                      targetave_ntl_all_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2019 (target area average)",
+                      targetave_ntl_all_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Human Settlement Area 2020 (target area average)",
+                      targetave_ntl_built_up_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2015 (target area average)",
+                      targetave_ntl_built_up_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2016 (target area average)",
+                      targetave_ntl_built_up_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2017 (target area average)",
+                      targetave_ntl_built_up_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2018 (target area average)",
+                      targetave_ntl_built_up_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2019 (target area average)",
+                      targetave_ntl_built_up_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Built Up areas 2020 (target area average)",
+                      targetave_ntl_small_stl_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2015 (target area average)",
+                      targetave_ntl_small_stl_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2016 (target area average)",
+                      targetave_ntl_small_stl_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2017 (target area average)",
+                      targetave_ntl_small_stl_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2018 (target area average)",
+                      targetave_ntl_small_stl_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2019 (target area average)",
+                      targetave_ntl_small_stl_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Small Settlements Areas 2020 (target area average)",
+                      targetave_ntl_hamlet_2015 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2015 (target area average)",
+                      targetave_ntl_hamlet_2016 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2016 (target area average)",
+                      targetave_ntl_hamlet_2017 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2017 (target area average)",
+                      targetave_ntl_hamlet_2018 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2018 (target area average)",
+                      targetave_ntl_hamlet_2019 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2019 (target area average)",
+                      targetave_ntl_hamlet_2020 = "Average Night Luminosity (nanoWatts/sr/cm^2) in Hamlet Areas 2020 (target area average)",
+                      targetave_pop_density_2015 = "2015 Population density (target area average)",
+                      targetave_pop_density_2016 = "2016 Population density (target area average)",
+                      targetave_pop_density_2017 = "2017 Population density (target area average)",
+                      targetave_pop_density_2018 = "2018 Population density (target area average)",
+                      targetave_pop_density_2019 = "2019 Population density (target area average)",
+                      targetave_pop_density_2020 = "2020 Population density (target area average)",
+                      targetave_lightscore_sy_2012 = "2012 Probability of electrification (target area average)",
+                      targetave_prplit_conf90_sy_2012 = "2012 Proportion of nights a settlement is brighter than uninhabited areas (target area average)",
+                      targetave_lightscore_sy_2019 = "2019 Probability of electrification (target area average)",
+                      targetave_prplit_conf90_sy_2019 = "2019 Proportion of nights a settlement is brighter than uninhabited areas (target area average)",
+                      targetave_2017_Water = "Proportion area covered by water in 2017 (target area average)",
+                      targetave_2017_Trees = "Proportion area covered by trees in 2017 (target area average)",
+                      targetave_2017_fld_veg = "Proportion area covered by flooded vegetation in 2017 (target area average)",
+                      targetave_2017_Crops = "Proportion area covered by crops in 2017 (target area average)",
+                      targetave_2017_Built_Area = "Proportion area covered by built area in 2017 (target area average)",
+                      targetave_2017_Bare_ground = "Proportion area covered by bare ground in 2017 (target area average)",
+                      targetave_2017_Snow_Ice = "Proportion area covered by snow and ice in 2017 (target area average)",
+                      targetave_2017_Clouds = "Proportion area covered by clouds in 2017 (target area average)",
+                      targetave_2017_Rangeland = "Proportion area covered by rangeland in 2017 (target area average)",
+                      targetave_2018_Water = "Proportion area covered by water in 2018 (target area average)",
+                      targetave_2018_Trees = "Proportion area covered by trees in 2018 (target area average)",
+                      targetave_2018_fld_veg = "Proportion area covered by flooded vegetation in 2018 (target area average)",
+                      targetave_2018_Crops = "Proportion area covered by crops in 2018 (target area average)",
+                      targetave_2018_Built_Area = "Proportion area covered by built area in 2018 (target area average)",
+                      targetave_2018_Bare_ground = "Proportion area covered by bare ground in 2018 (target area average)",
+                      targetave_2018_Snow_Ice = "Proportion area covered by snow and ice in 2018 (target area average)",
+                      targetave_2018_Clouds = "Proportion area covered by clouds in 2018 (target area average)",
+                      targetave_2018_Rangeland = "Proportion area covered by rangeland in 2018 (target area average)",
+                      targetave_2019_Water = "Proportion area covered by water in 2019 (target area average)",
+                      targetave_2019_Trees = "Proportion area covered by trees in 2019 (target area average)",
+                      targetave_2019_fld_veg = "Proportion area covered by flooded vegetation in 2019 (target area average)",
+                      targetave_2019_Crops = "Proportion area covered by crops in 2019 (target area average)",
+                      targetave_2019_Built_Area = "Proportion area covered by built area in 2019 (target area average)",
+                      targetave_2019_Bare_ground = "Proportion area covered by bare ground in 2019 (target area average)",
+                      targetave_2019_Snow_Ice = "Proportion area covered by snow and ice in 2019 (target area average)",
+                      targetave_2019_Clouds = "Proportion area covered by clouds in 2019 (target area average)",
+                      targetave_2019_Rangeland = "Proportion area covered by rangeland in 2019 (target area average)",
+                      targetave_2020_Water = "Proportion area covered by water in 2020 (target area average)",
+                      targetave_2020_Trees = "Proportion area covered by trees in 2020 (target area average)",
+                      targetave_2020_fld_veg = "Proportion area covered by flooded vegetation in 2020 (target area average)",
+                      targetave_2020_Crops = "Proportion area covered by crops in 2020 (target area average)",
+                      targetave_2020_Built_Area = "Proportion area covered by built area in 2020 (target area average)",
+                      targetave_2020_Bare_ground = "Proportion area covered by bare ground in 2020 (target area average)",
+                      targetave_2020_Snow_Ice = "Proportion area covered by snow and ice in 2020 (target area average)",
+                      targetave_2020_Clouds = "Proportion area covered by clouds in 2020 (target area average)",
+                      targetave_2020_Rangeland = "Proportion area covered by rangeland in 2020 (target area average)",
+                      targetave_building_sum = "Number of buildings within WorldPop grid containing Household (target area average)",
+                      targetave_building_density = "Number of buildings per square km lived area (target area average)",
+                      targetave_building_mean_area = "Mean building areas within WorldPop grid containing Household (target area average)",
+                      targetave_building_mean_length = "Mean building lengths within WorldPop grid containing Household (target area average)",
+                      targetave_building_mean_urban = "Urbanization rate within WorldPop grid containing Household (target area average)",
+                      targetave_pdsi_mean2018="Palmer Drought Severity Index mean 2018 (target area average)",
+                      targetave_aet_mean2018="Actual evapotranspiration mean 2018 (target area average)",
+                      targetave_def_mean2018="Climate water deficit mean 2018 (target area average)",
+                      targetave_pr_mean2018="Precipitation accumulation mean 2018 (target area average)",
+                      targetave_ro_mean2018= "Runoff mean 2018 (target area average)",
+                      targetave_soil_mean2018="Soil moisture 2018 (target area average)",
+                      targetave_tmmn_mean2018= "Minimum temperature mean 2018 (target area average)",
+                      targetave_tmmx_mean2018= "Maximum temperature mean 2018 (target area average)",
+                      targetave_swe_mean2018= "Snow water equivalent mean 2018 (target area average)",
+                      targetave_srad_mean2018= "Downward surface shortwave radiation mean 2018 (target area average)",
+                      targetave_pdsi_mean2014="Palmer Drought Severity Index mean 2014 (target area average)",
+                      targetave_pdsi_mean2014="Palmer Drought Severity Index mean 2014 (target area average)",
+                      targetave_aet_mean2014="Actual evapotranspiration mean 2014 (target area average)",
+                      targetave_def_mean2014="Climate water deficit mean 2014 (target area average)",
+                      targetave_pr_mean2014="Precipitation accumulation mean 2014 (target area average)",
+                      targetave_ro_mean2014= "Runoff mean 2014 (target area average)",
+                      targetave_soil_mean2014="Soil moisture mean 2014 (target area average)",
+                      targetave_tmmn_mean2014= "Minimum temperature mean 2014 (target area average)",
+                      targetave_tmmx_mean2014= "Maximum temperature mean 2014 (target area average)",
+                      targetave_swe_mean2014= "Snow water equivalent mean 2014 (target area average)",
+                      targetave_srad_mean2014= "Downward surface shortwave radiation mean 2014 (target area average)",
+                      targetave_pdsi_mean2009="Palmer Drought Severity Index mean 2009 (target area average)",
+                      targetave_aet_mean2009="Actual evapotranspiration mean 2009 (target area average)",
+                      targetave_def_mean2009="Climate water deficit mean 2009 (target area average)",
+                      targetave_pr_mean2009="Precipitation accumulation mean 2009 (target area average)",
+                      targetave_ro_mean2009= "Runoff mean 2009 (target area average)",
+                      targetave_soil_mean2009="Soil moisture  mean 2009 (target area average)",
+                      targetave_tmmn_mean2009= "Minimum temperature mean 2009 (target area average)",
+                      targetave_tmmx_mean2009= "Maximum temperature mean 2009 (target area average)",
+                      targetave_swe_mean2009= "Snow water equivalent mean 2009 (target area average)",
+                      targetave_srad_mean2009= "Downward surface shortwave radiation mean 2009 (target area average)",
+                      targetave_pdsi_mean99_19="Palmer Drought Severity Index mean 1999-2019 (target area average)",
+                      targetave_aet_mean99_19="Actual evapotranspiration  mean 1999-2019 (target area average)",
+                      targetave_def_mean99_19="Climate water deficit mean 1999-2019 (target area average)",
+                      targetave_pr_mean99_19="Precipitation accumulation mean 1999-2019 (target area average)",
+                      targetave_ro_mean99_19= "Runoff  mean 1999-2019 (target area average)",
+                      targetave_soil_mean99_19="Soil moisture mean 1999-2019 (target area average)",
+                      targetave_tmmn_mean99_19= "Minimum temperature mean 1999-2019 (target area average)",
+                      targetave_tmmx_mean99_19= "Maximum temperature mean 1999-2019 (target area average)",
+                      targetave_swe_mean99_19= "Snow water equivalent mean 1999-2019 (target area average)",
+                      targetave_srad_mean99_19= "Downward surface shortwave radiation 1999-2019 (target area average)",
+                      targetave_pdsi_change_5="Five year change in Palmer Drought Severity Index mean (target area average)",
+                      targetave_aet_change_5="Five year change in Actual evapotranspiration mean (target area average)",
+                      targetave_def_change_5="Five year change in Climate water deficit mean (target area average)",
+                      targetave_pr_change_5="Five year change in Precipitation accumulation mean (target area average)",
+                      targetave_ro_change_5= "Five year change in Runoff mean (target area average)",
+                      targetave_soil_change_5="Five year change in Soil moisture mean (target area average)",
+                      targetave_tmmn_change_5= "Five year change in Minimum temperature mean (target area average)",
+                      targetave_tmmx_change_5= "Five year change in Maximum temperature mean (target area average)",
+                      targetave_swe_change_5= "Five year change in Snow water equivalent mean (target area average)",
+                      targetave_srad_change_5= "Five year change in Downward surface shortwave radiation mean (target area average)",
+                      targetave_pdsi_change_10="Ten year change in Palmer Drought Severity Index mean mean (target area average)",
+                      targetave_aet_change_10="Ten year change in Actual evapotranspiration mean (target area average)",
+                      targetave_def_change_10="Ten year change in Climate water deficit mean (target area average)",
+                      targetave_pr_change_10="Ten year change in Precipitation accumulation mean (target area average)",
+                      targetave_ro_change_10= "Ten year change in Runoff mean (target area average)",
+                      targetave_soil_change_10="Ten year change in Soil moisture mean (target area average)",
+                      targetave_tmmn_change_10= "Ten year change in Minimum temperature mean (target area average)",
+                      targetave_tmmx_change_10= "Ten year change in Maximum temperature mean (target area average)",
+                      targetave_swe_change_10= "Ten year change in Snow water equivalent mean (target area average)",
+                      targetave_srad_change_10= "Ten year change in Downward surface shortwave radiation mean (target area average)",
+                      targetave_pdsi_hist_dev="Historical deviation from the mean of Palmer Drought Severity Index (target area average)",
+                      targetave_aet_hist_dev="Historical deviation from the mean of Actual evapotranspiration (target area average)",
+                      targetave_def_hist_dev="Historical deviation from the mean of Climate water deficit (target area average)",
+                      targetave_pr_hist_dev="Historical deviation from the mean of Precipitation accumulation (target area average)",
+                      targetave_ro_hist_dev= "Historical deviation from the mean of Runoff (target area average)",
+                      targetave_soil_hist_dev="Historical deviation from the mean of Soil moisture (target area average)",
+                      targetave_tmmn_hist_dev= "Historical deviation from the mean of Minimum temperature (target area average)",
+                      targetave_tmmx_hist_dev= "Historical deviation from the mean of Maximum temperature (target area average)",
+                      targetave_swe_hist_dev= "Historical deviation from the mean of Snow water equivalent (target area average)",
+                      targetave_srad_hist_dev= "Historical deviation from the mean of Downward surface shortwave radiation (target area average)",
+                      targetave_pdsi_sq_hist_dev="Squared historical deviation from the mean of Palmer Drought Severity Index (target area average)",
+                      targetave_aet_sq_hist_dev="Squared historical deviation from the mean of Actual evapotranspiration (target area average)",
+                      targetave_def_sq_hist_dev="Squared historical deviation from the mean of Climate water deficit (target area average)",
+                      targetave_pr_sq_hist_dev="Squared historical deviation from the mean of Precipitation accumulation (target area average)",
+                      targetave_ro_sq_hist_dev= "Squared historical deviation from the mean of Runoff (target area average)",
+                      targetave_soil_sq_hist_dev="Squared historical deviation from the mean of Soil moisture (target area average)",
+                      targetave_tmmn_sq_hist_dev= "Squared historical deviation from the mean of Minimum temperature (target area average)",
+                      targetave_tmmx_sq_hist_dev= "Squared historical deviation from the mean of Maximum temperature (target area average)",
+                      targetave_swe_sq_hist_dev= "Squared historical deviation from the mean of Snow water equivalent (target area average)",
+                      targetave_srad_sq_hist_dev= "Squared historical deviation from the mean of Downward surface shortwave radiation (target area average)",
+                      targetave_meta_wealth_index = "Facebook Meta Wealth Index (target area average)",
+                      targetave_BU2016DHS_ANANEMWANY = "% women aged 15-49 with anemia (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_CHVAC1CVCD = "% children 12-23 mths with vaccination card (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_CHVACCCBAS = "% children 12-23 mths with 8 basic vaccinations (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_CHVACCCDP1 = "% children 12-23 mths with DPT1 vaccination (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_CHVACCCDP3 = "% children 12-23 mths with 3rd dose DPT (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_CHVACSCMSL = "% children 12-23 mths received Measles vaccination (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_CNNUTSCHA2 = "% children under age 5 stunted (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_EDLITRMLIT = "% men aged 15-49 who are literate (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_EDLITRWLIT = "% women aged 15-49 who are literate (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_FPCUSMWMOD = "% currently married or in union women using modern contraception (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_FPNADMWPDM = "ratio of currently married women using FP to FP demand from same group (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_FPNADMWUNT = "% currently married or in union women with an unmet need for FP (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_MLITNAPACC = "% of HH population sleeping under an ITN if ITN can be used by <=2 people (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_RHANCNWN4P = "% women had live birth in last 5 years who had 4+ antenatal care visits (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_RHDELPCDHF = "% live births in the 5 years preceding DHS 2016 delivered at a health facility (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_WSSRCEPIMP = "% of population living in HHs with improved main source of drinking water (DHS 2016) (target area average)",
+                      targetave_BU2016DHS_WSTLETPNFC = "% of population living in HHs with main type of toilet is no facility (DHS 2016) (target area average)",
+                      targetave_normal_ntl_mean2015 = "2015 Average Night Luminosity (all areas unfiltered) (target area average)",
+                      targetave_normal_ntl_mean2016 = "2016 Average Night Luminosity (all areas unfiltered) (target area average)",
+                      targetave_normal_ntl_mean2017 = "2017 Average Night Luminosity (all areas unfiltered) (target area average)",
+                      targetave_normal_ntl_mean2018 = "2018 Average Night Luminosity (all areas unfiltered) (target area average)",
+                      targetave_normal_ntl_mean2019 = "2019 Average Night Luminosity (all areas unfiltered) (target area average)",
+                      targetave_normal_ntl_mean2020 = "2020 Average Night Luminosity (all areas unfiltered) (target area average)",
+                      lnrpc_tot_cons = "Log Real Per Capita consumption",
+                      rpc_tot_cons = "Real Per Capita Consumption",
+                      BDI001 = "Bubanza Dummy",
+                      BDI002 = "Bujumbura Rural Dummy",
+                      BDI003 = "Bururi Dummy",
+                      BDI004 = "Cankuzo Dummy",
+                      BDI005 = "Cibitoke Dummy",
+                      BDI006 = "Gitega Dummy",
+                      BDI007 = "Karuzi Dummy",
+                      BDI008 = "Kayanza Dummy",
+                      BDI009 = "Kirundo Dummy",
+                      BDI010 = "Makamba Dummy",
+                      BDI011 = "Muramvya Dummy",
+                      BDI012 = "Muyinga Dummy",
+                      BDI013 = "Mwaro Dummy",
+                      BDI014 = "Ngozi Dummy",
+                      BDI015 = "Rutana Dummy",
+                      BDI016 = "Ruyigi Dummy",
+                      BDI017 = "Bujumbura Mairie Dummy",
+                      BDI018 = "Rumonge Dummy")
 
 save.image("data-raw/all_modelestimation.RData")
 
