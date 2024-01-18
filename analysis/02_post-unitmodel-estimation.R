@@ -96,6 +96,8 @@ descriptives_dt$poverty_df$survey[[1]] <-
 
 saveRDS(descriptives_dt, "figures/post-est-tables/descriptives_tables.RDS")
 
+### write each
+
 
 ##### compare the means between survey and census prior to model estimation
 checkvariables_dt <-
@@ -111,13 +113,38 @@ write.csv(checkvariables_dt,
 ebp_modelresults_dt <-
   ebp_reportcoef_table(unit_model, 4)
 
-write.csv(ebp_modelresults_dt,
+### include replace variable names with the labels
+varlabel_list <- unname(unlist(lapply(geosurvey_dt[,ebp_modelresults_dt$Variable[-1], with = F], expss::var_lab)))
+varlabel_list <- c("Intercept", varlabel_list)
+
+ebp_modelresults_dt$Variables <- varlabel_list
+
+
+write.csv(ebp_modelresults_dt[, c("Variables", "coeff", "std_error")],
           "figures/post-est-tables/ebp_model_estimates.csv")
 
 
+### include the EAs
+
+hh_dt <- haven::read_dta("data-raw/hh_poverty.dta")
+
+geosurvey_dt <-
+  geosurvey_dt %>%
+  merge(hh_dt[, c("hhid", "enum_area")], by = "hhid")
+
+unit_model$framework$smp_data$enum_area <-
+as.data.frame(na.omit(geosurvey_dt[!is.na(admin2Pcod),
+                                   c("rpc_tot_cons",
+                                     stata_vars,
+                                     "targetarea_codes",
+                                     "hhweight",
+                                     "enum_area"),
+                                   with = FALSE]))$enum_area
+
 cv_dt <- ebp_compute_cv(model = unit_model,
-                        designvar = NULL,
-                        threshold = 10381.14)
+                        designvar = "enum_area",
+                        threshold = 10381.14,
+                        calibvar = "targetarea_codes")
 
 write.csv(cv_dt, "figures/post-est-tables/targetarea_cvtable.csv")
 
@@ -172,7 +199,16 @@ cv_dt %>%
               linetype = "dashed",
               color = "red")
 
+
 ggsave("figures/compare_direct_ebp_cv.png")
+
+cv_dt %>%
+  ggplot(aes(HT_Head_Count_CV)) +
+  stat_ecdf(geom = "step") +
+  xlab("CV (Horovitz-Thompson Approx.)") +
+  ylab("Cumulative Probability") +
+  theme_bw()
+
 
 
 #### compare census based estimates to geopatial estimates at the admin1 level
@@ -267,7 +303,13 @@ cv_dt <-
   merge(admin2_dt[, c("targetarea_codes", "admin2Name")],
         by.x = "Domain", by.y = "targetarea_codes")
 
-write.csv(cv_dt, "figures/post-est-tables/targetarea_cvtable2.csv")
+
+write.csv(cv_dt %>%
+            st_as_sf(crs = 4326, agr = "constant") %>%
+            select(admin2Name, Direct_Head_Count, EBP_Head_Count,
+                   HT_Head_Count_CV, DesignEffect_CV, EBP_Head_Count_CV) %>%
+            st_drop_geometry(),
+            "figures/post-est-tables/targetarea_cvtable2.csv")
 
 
 
@@ -309,6 +351,23 @@ grid_dt %>%
 ggsave("figures/2015populationdensity_bujumburarural.png")
 
 
+### tables for estimated median and mean CV for direct and model based estimates
+summary_cv_dt <-
+  data.table(indicator = c("HTA", "DesignEffect", "EBP", "Percent Reduction in CV"),
+             median = c(median(cv_dt$HT_Head_Count_CV, na.rm = TRUE),
+                        median(cv_dt$DesignEffect_CV, na.rm = TRUE),
+                        median(cv_dt$EBP_Head_Count_CV, na.rm = TRUE),
+                        ((median(cv_dt$DesignEffect_CV, na.rm = TRUE) -
+                           median(cv_dt$EBP_Head_Count_CV, na.rm = TRUE))/median(cv_dt$EBP_Head_Count_CV, na.rm = TRUE))*100),
+             mean = c(mean(cv_dt$HT_Head_Count_CV, na.rm = TRUE),
+                      mean(cv_dt$DesignEffect_CV, na.rm = TRUE),
+                      mean(cv_dt$EBP_Head_Count_CV, na.rm = TRUE),
+                      ((mean(cv_dt$DesignEffect_CV, na.rm = TRUE) -
+                         mean(cv_dt$EBP_Head_Count_CV, na.rm = TRUE))/mean(cv_dt$EBP_Head_Count_CV, na.rm = TRUE))*100))
+
+write.csv(summary_cv_dt, "figures/post-est-tables/summary_cv_tables.csv")
+
+save.image("data-raw/all_modelpostestimation.RData")
 
 
 

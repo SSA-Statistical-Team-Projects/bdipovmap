@@ -510,6 +510,14 @@ missing_rate <- function(x){
 
 
 
+replace_na_with_avg <- function(x) {
+
+  if (any(!is.na(x))) {
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+  }
+  return(x)
+
+}
 
 
 
