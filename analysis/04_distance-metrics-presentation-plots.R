@@ -2,7 +2,7 @@
 ##################### DISTANCE METRICS FOR DIAGNOSTICS #########################
 ################################################################################
 
-pacman::p_load(dplyr, data.table, sf, raster)
+pacman::p_load(dplyr, data.table, sf, raster, ggplot2, tidyverse)
 
 #### read in the data
 
@@ -102,17 +102,98 @@ dist_cols <- c("closest_market", "closest_hospital", "closest_bank",
                "bdi_osm_dst_waterway_100m_2016")
 
 
+
 hh_dt[, (dist_cols) := lapply(.SD, function(x) ifelse(is.infinite(x), NA, x)), .SDcols = dist_cols]
 
 hh_dt <- geosurvey_dt[,c("hhid", "province")][hh_dt, on = "hhid"]
 
-hh_dt[, (dist_cols) := lapply(.SD, replace_na_with_avg), by = "province"]
+add_dt <- hh_dt[, lapply(.SD, replace_na_with_avg), .SDcols = dist_cols, by = "province"]
+
+hh_dt <- cbind(hh_dt[,colnames(hh_dt)[!colnames(hh_dt) %in% colnames(add_dt)], with = F],
+               add_dt)
+
+### remove all the i. variables
+# hh_dt <- hh_dt[, colnames(hh_dt)[!grepl("^i.", colnames(hh_dt))], with = F]
+
+
+closest_cols <- c("closest_market", "closest_hospital", "closest_bank",
+                  "closest_capital_city", "closest_capital_city_linear")
+
+hh_dt[, (closest_cols) := lapply(.SD, function(x) (x / 1000)), .SDcols = closest_cols]
+
+hh_dt[, hhweight := hh_size * weight]
 
 urban_indicators <-
-  hh_dt[, lapply(.SD, mean, na.rm = TRUE), .SDcols = dist_cols, by = "urban"]
+  hh_dt[, lapply(.SD, weighted.mean, w = hhweight, na.rm = TRUE), .SDcols = dist_cols, by = "urban"]
 
 decile_indicators <-
-  hh_dt[, lapply(.SD, mean, na.rm = TRUE), .SDcols = dist_cols, by = "cons_decile"]
+  hh_dt[, lapply(.SD, weighted.mean, w = hhweight, na.rm = TRUE), .SDcols = dist_cols, by = "cons_decile"]
+
+custom_labels <- c("market", "hospital", "bank", "capital city", "capital city linear",
+                   "major road", "road intersection", "major waterway")
+
+###### put together the plots
+urban_dt <-
+urban_indicators %>%
+  gather(key = "indicator", value = "distance_km", -urban) %>%
+  mutate(sector = ifelse(urban == 1, "Urban", "Rural")) %>%
+  mutate(sector = as.factor(sector))
+
+urban_dt %>%
+  ggplot(aes(x = indicator, y = distance_km, fill = sector)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_x_discrete(labels = setNames(custom_labels, unique(urban_dt$indicator))) +
+  labs(title = "Distance to Nearest POI",
+       x = "Indicator",
+       y = "Distance (in km)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+decile_dt <-
+  decile_indicators %>%
+  gather(key = "indicator", value = "distance_km", -cons_decile)
+
+ggplot(decile_dt, aes(x = indicator, y = distance_km, fill = factor(cons_decile))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_x_discrete(labels = setNames(custom_labels, unique(decile_dt$indicator))) +
+  scale_fill_manual(values = scales::viridis_pal()(length(unique(decile_dt$cons_decile))), name = "Decile") +
+  labs(title = "Distance to Nearest POI",
+       x = "Indicator",
+       y = "Distance (in km)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#### geospatial plot to show regional variation
+
+write.csv(hh_dt[, colnames(hh_dt)[!(grepl("geometry", colnames(hh_dt)))], with = F],
+          "data-clean/distance_metrics.csv")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
