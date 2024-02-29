@@ -16,6 +16,28 @@ grid_dt <- grid_dt$admin4_poppoly ### the geospatial grid data
 
 geosurvey_dt <- haven::read_dta("data-raw/hh_poverty.dta") ### household survey
 
+### read in the update to the welfare aggregates
+add_dt <- haven::read_dta("data-raw/BDI_2020_EICVMB_v01_M_v01_A_SSAPOV_GMD.dta")
+
+add_dt <- add_dt[, c("hhid", "welfare", "welfaredef", "cpi",
+                     "ppp", "weight_p", "weight_h")]
+
+geosurvey_dt <-
+  geosurvey_dt %>%
+  left_join(unique(add_dt), by = "hhid")
+
+### check the international poverty rate (poverty rate matches at 62.1%)
+add_dt %>%
+  mutate(poor = ifelse(welfare / cpi / ppp / 365 < 2.15, 1, 0)) %>%
+  summarise(weighted.mean(x = poor,
+                          w = weight_p,
+                          na.rm = TRUE))
+### create the poverty line
+geosurvey_dt <-
+  geosurvey_dt %>%
+  mutate(pline_int_215 = cpi * ppp * 365)
+
+
 geocodes_dt <-
   haven::read_spss("data-raw/Coordonnées GPS des ménages enquêtés.sav")
 
@@ -65,7 +87,7 @@ grid_dt <-
 
 geosurvey_dt <-
   geosurvey_dt[, c("hhid", "hh_size", "weight", "weight_adj",
-                   "rpc_tot_cons",
+                   "welfare",
                    "pline_int_215", "SI15", "SI16")] %>%
   st_as_sf(crs = 4326,
            coords = c("SI16", "SI15")) %>%
@@ -76,7 +98,7 @@ geosurvey_dt <-
 #### check out the welfare distribution
 welfare_plot <-
 geosurvey_dt %>%
-  ggplot(aes(x = log(rpc_tot_cons))) +
+  ggplot(aes(x = log(welfare))) +
   geom_histogram(binwidth = 0.1,
                  fill = "blue",
                  color = "black",
@@ -122,7 +144,7 @@ test_dt <- merge(test_dt %>%
                    st_transform(crs = 4326))
 
 missing_dt <- st_join(missing_dt[, c("hhid", "hh_size", "weight",
-                                     "weight_adj", "rpc_tot_cons",
+                                     "weight_adj", "welfare",
                                      "pline_int_215")] %>%
                         st_transform(crs = 4326),
                       test_dt %>%
@@ -360,7 +382,7 @@ grid_dt <- cbind(grid_dt,
 
 ### quickly compute poverty rate
 geosurvey_dt %>%
-  mutate(poor = ifelse(rpc_tot_cons < pline_int_215, 1, 0)) %>%
+  mutate(poor = ifelse(welfare < pline_int_215, 1, 0)) %>%
   summarise(intpovrate = weighted.mean(x = poor,
                                        w = weight * hh_size,
                                        na.rm = TRUE))
@@ -384,7 +406,7 @@ setnames(grid_dt, invalid_names, valid_names)
 ################### MODEL SELECTION ANALYTICS PRE-IMPUTATION ###################
 ################################################################################
 remove_vars <- c("hhid", "hh_size", "weight", "weight_adj", "hhweight",
-                 "pline_int_215", "area", "poly_area", "rpc_tot_cons",
+                 "pline_int_215", "area", "poly_area", "welfare",
                  "geometry", "swe_sq_hist_dev", "targetave_swe_change_10",
                  "targetave_swe_sq_hist_dev", "targetave_geometry",
                  "targetarea_codes",
@@ -397,7 +419,7 @@ candidate_vars <- colnames(geosurvey_dt)[!colnames(geosurvey_dt) %in% remove_var
 grid_dt <- as.data.table(grid_dt)
 geosurvey_dt <- as.data.table(geosurvey_dt)
 
-geosurvey_dt[, lnrpc_tot_cons := log(rpc_tot_cons + 1)]
+geosurvey_dt[, lnwelfare := log(welfare + 1)]
 
 ## some variables have super large values lets transform them!
 columns_to_scale <- sapply(as.data.frame(geosurvey_dt[,candidate_vars, with = F]), function(x) any(abs(x) > 100))
@@ -420,10 +442,9 @@ scale_vars <- columns_to_scale[!(columns_to_scale %in% log_vars)]
 geosurvey_dt[, (scale_vars) := lapply(.SD, scale, center = TRUE), .SDcols = scale_vars]
 grid_dt[, (scale_vars) := lapply(.SD, scale, center = TRUE), .SDcols = scale_vars]
 
-
 model_dt <- geosurvey_dt[, c(candidate_vars,
-                             "lnrpc_tot_cons",
-                             "hhweight",
+                             "lnwelfare",
+                             "weight",
                              "targetarea_codes"),
                              with = FALSE]
 
@@ -443,7 +464,7 @@ candidate_vars <- candidate_vars[!(candidate_vars %in% constant_cols)]
 
 model_dt <- as.data.frame(model_dt)
 
-haven::write_dta(geosurvey_dt[, c("lnrpc_tot_cons",
+haven::write_dta(geosurvey_dt[, c("lnwelfare",
                                   candidate_vars,
                                   "weight",
                                   "admin2Pcod"), with = FALSE],
@@ -454,12 +475,12 @@ haven::write_dta(geosurvey_dt[, c("lnrpc_tot_cons",
 ############## PREPARE FOR MODEL SELECTION FOR MIXED MODELS ####################
 ################################################################################
 ### perform the model selection with the lasso linear model
-stata_vars <- countrymodel_select_stata(dt = geosurvey_dt[, c("lnrpc_tot_cons",
+stata_vars <- countrymodel_select_stata(dt = geosurvey_dt[, c("lnwelfare",
                                                               candidate_vars,
                                                               "hhweight",
                                                               "admin2Pcod"), with = FALSE],
                                         xvars = candidate_vars,
-                                        y = "lnrpc_tot_cons",
+                                        y = "lnwelfare",
                                         weights = "hhweight",
                                         selection = "BIC",
                                         stata_path = "D:/Programs/Stata18/StataMP-64",
@@ -470,7 +491,7 @@ stata_vars <- countrymodel_select_stata(dt = geosurvey_dt[, c("lnrpc_tot_cons",
 
 # ### remove the multicollinear variables real quick
 #
-# lmmodel_check <- lm(lnrpc_tot_cons ~ ., data = model_dt[, c(candidate_vars, "lnrpc_tot_cons")])
+# lmmodel_check <- lm(lnwelfare ~ ., data = model_dt[, c(candidate_vars, "lnwelfare")])
 #
 # ### remove the NAs
 # cand_vars <- names(lmmodel_check$coefficients[is.na(lmmodel_check$coefficients) == FALSE])
@@ -481,17 +502,17 @@ stata_vars <- countrymodel_select_stata(dt = geosurvey_dt[, c("lnrpc_tot_cons",
 # #
 # # cand_vars <- cand_vars[!(cand_vars %in% "BDI018")]
 #
-# lmmodel_check <- lm(lnrpc_tot_cons ~ ., data = model_dt[, c(cand_vars,
-#                                                            "lnrpc_tot_cons")])
+# lmmodel_check <- lm(lnwelfare ~ ., data = model_dt[, c(cand_vars,
+#                                                            "lnwelfare")])
 #
 # scale_model_dt <- as.data.frame(scale(geosurvey_dt[, cand_vars, with = F]))
 #
-# scale_model_dt <- cbind(scale_model_dt, geosurvey_dt[, c("lnrpc_tot_cons", "targetarea_codes")])
+# scale_model_dt <- cbind(scale_model_dt, geosurvey_dt[, c("lnwelfare", "targetarea_codes")])
 #
 # dt <- cbind(scale_model_dt, geosurvey_dt[, colnames(geosurvey_dt)[grepl("BDI", colnames(geosurvey_dt))], with = F])
 #
 # ### model selection with lasso for mixed effects models
-# pql <- glmmPQL(lnrpc_tot_cons ~ 1,
+# pql <- glmmPQL(lnwelfare ~ 1,
 #                random = list(targetarea_codes = ~1),
 #                family = "gaussian",
 #                data = dt)
@@ -558,7 +579,7 @@ stata_vars <- countrymodel_select_stata(dt = geosurvey_dt[, c("lnrpc_tot_cons",
 # parallelMap::parallelStop()
 #
 #
-# lasso_model <- glmmLasso(fix = as.formula(paste("lnrpc_tot_cons ~ ", paste(cand_vars, collapse= "+"))),
+# lasso_model <- glmmLasso(fix = as.formula(paste("lnwelfare ~ ", paste(cand_vars, collapse= "+"))),
 #                          rnd = list(targetarea_codes = ~1),
 #                          family = gaussian(link = "identity"),
 #                          data = na.omit(dt),
@@ -600,14 +621,41 @@ grid_dt[, targetarea_codes := as.integer(substr(admin2Pcod, 4, nchar(admin2Pcod)
 #
 # setnames(grid_dt, invalid_names, valid_names)
 
-unit_model <- povmap::ebp(fixed = as.formula(paste("rpc_tot_cons ~ ", paste(stata_vars, collapse= "+"))),
+
+geosurvey_dt$pline_int_215 <- 654.4216*1.0489*365*2.15
+geosurvey_dt$hhweight <- geosurvey_dt$weight * geosurvey_dt$hh_size
+
+geosurvey_dt %>%
+  mutate(poor = ifelse(welfare < pline_int_215, 1, 0)) %>%
+  summarise(weighted.mean(x = poor,
+                          w = hhweight,
+                          na.rm = TRUE))
+
+#### there are some missing admin areas we need to give them target area codes
+geosurvey_dt[is.na(targetarea_codes),
+                         c(colnames(geosurvey_dt)[grepl("admin",
+                                                        colnames(geosurvey_dt))],
+                           "geometry",
+                           "welfare"),
+                         with = F] %>%
+  st_as_sf(crs = 4326) %>%
+  ggplot() +
+  geom_sf() +
+  geom_sf(data = shp_dt) ###the three points appear to be outside the country
+
+
+
+
+
+
+unit_model <- povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(stata_vars, collapse= "+"))),
                           pop_data = as.data.frame(na.omit(grid_dt[,c(stata_vars,
                                                                       "targetarea_codes",
                                                                       "bdi_ppp_2020_UNadj_constrained"),
                                                                    with = FALSE])),
                           pop_domains = "targetarea_codes",
                           smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin2Pcod),
-                                                                        c("rpc_tot_cons",
+                                                                        c("welfare",
                                                                           stata_vars,
                                                                           "targetarea_codes",
                                                                           "hhweight"),
@@ -616,7 +664,7 @@ unit_model <- povmap::ebp(fixed = as.formula(paste("rpc_tot_cons ~ ", paste(stat
                           L = 100,
                           B = 100,
                           transformation = "log",
-                          threshold = 10381.14,
+                          threshold = 538670.3,
                           weights = "hhweight",
                           pop_weights = "bdi_ppp_2020_UNadj_constrained",
                           cpus = 30,
