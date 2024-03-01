@@ -16,26 +16,51 @@ grid_dt <- grid_dt$admin4_poppoly ### the geospatial grid data
 
 geosurvey_dt <- haven::read_dta("data-raw/hh_poverty.dta") ### household survey
 
-### read in the update to the welfare aggregates
-add_dt <- haven::read_dta("data-raw/BDI_2020_EICVMB_v01_M_v01_A_SSAPOV_GMD.dta")
+# ### read in the update to the welfare aggregates
+# add_dt <- haven::read_dta("data-raw/BDI_2020_EICVMB_v01_M_v01_A_SSAPOV_GMD.dta")
+#
+# add_dt <- add_dt[, c("hhid", "welfare", "welfaredef", "cpi",
+#                      "ppp", "weight_p", "weight_h", "welfarenom")]
+#
+# geosurvey_dt <-
+#   geosurvey_dt %>%
+#   left_join(unique(add_dt), by = "hhid")
+#
+# ### check the international poverty rate (poverty rate matches at 62.1%)
+# add_dt %>%
+#   mutate(poor = ifelse(welfare / cpi / ppp / 365 < 2.15, 1, 0)) %>%
+#   summarise(weighted.mean(x = poor,
+#                           w = weight_p,
+#                           na.rm = TRUE))
+#
+# add_dt %>%
+#   mutate(poor = ifelse(welfarenom < 436925.6, 1, 0)) %>%
+#   summarize(national_povrate = weighted.mean(x = poor,
+#                                              w = weight_p,
+#                                              na.rm = TRUE))
+#
+#
+# ### create the poverty line
+# geosurvey_dt <-
+#   geosurvey_dt %>%
+#   mutate(pline_int_215 = cpi * ppp * 365)
 
-add_dt <- add_dt[, c("hhid", "welfare", "welfaredef", "cpi",
-                     "ppp", "weight_p", "weight_h")]
+#### compute national poverty rates and make sure they match
+# geosurvey_dt %>%
+#   mutate(poor = ifelse(welfare < pline_abs_lb_ae, 1, 0)) %>%
+#   summarise(weighted.mean(x = poor,
+#                           w = weight * hh_size,
+#                           na.rm = TRUE))
 
 geosurvey_dt <-
   geosurvey_dt %>%
-  left_join(unique(add_dt), by = "hhid")
+  rename(welfare = "rae_tot_cons")
 
-### check the international poverty rate (poverty rate matches at 62.1%)
-add_dt %>%
-  mutate(poor = ifelse(welfare / cpi / ppp / 365 < 2.15, 1, 0)) %>%
+geosurvey_dt %>%
+  mutate(poor = ifelse(welfare < pline_abs_lb_ae, 1, 0)) %>%
   summarise(weighted.mean(x = poor,
-                          w = weight_p,
+                          w = weight_adj * hh_size,
                           na.rm = TRUE))
-### create the poverty line
-geosurvey_dt <-
-  geosurvey_dt %>%
-  mutate(pline_int_215 = cpi * ppp * 365)
 
 
 geocodes_dt <-
@@ -381,11 +406,11 @@ grid_dt <- cbind(grid_dt,
 ### include the admin2_dt variables into geosurvey_dt
 
 ### quickly compute poverty rate
-geosurvey_dt %>%
-  mutate(poor = ifelse(welfare < pline_int_215, 1, 0)) %>%
-  summarise(intpovrate = weighted.mean(x = poor,
-                                       w = weight * hh_size,
-                                       na.rm = TRUE))
+# geosurvey_dt %>%
+#   mutate(poor = ifelse(welfare < pline_int_215, 1, 0)) %>%
+#   summarise(intpovrate = weighted.mean(x = poor,
+#                                        w = weight * hh_size,
+#                                        na.rm = TRUE))
 
 ### rename variable names that are over 32 characters long
 invalid_names <- colnames(geosurvey_dt)[nchar(colnames(geosurvey_dt)) >= 32]
