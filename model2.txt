@@ -1,1 +1,0 @@
-ntl_built_up_2020 y2017_Snow_Ice y2018_Snow_Ice building_sum building_mean_area targetave_building_mean_area targetave_def_change_10

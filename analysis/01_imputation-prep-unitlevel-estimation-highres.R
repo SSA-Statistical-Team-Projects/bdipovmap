@@ -354,3 +354,78 @@ geosurvey_dt <-
 geosurvey_dt %>%
   mutate(lnwelfare = log(welfare + 1))
 
+geosurvey_dt <- as.data.table(geosurvey_dt)
+grid_dt <- as.data.table(grid_dt)
+################################################################################
+############## PREPARE FOR MODEL SELECTION FOR MIXED MODELS ####################
+################################################################################
+### perform the model selection with the lasso linear model
+drop_vars <- c("grid_ID", cols_to_remove, "geometry", "TYPE_4", "ENGTYPE_4",
+               "area")
+
+candidate_vars <- colnames(grid_dt)[!colnames(grid_dt) %in% drop_vars]
+
+geosurvey_dt[, hhweight := weight_adj * hh_size]
+
+### create the area level dummies
+### create area level dummies
+geosurvey_dt <- cbind(geosurvey_dt,
+                      as.data.table(dummify(geosurvey_dt$admin1Pcod)))
+
+grid_dt <- cbind(grid_dt,
+                 as.data.table(dummify(grid_dt$admin1Pcod)))
+
+
+admin4_selvars <-
+  countrymodel_select_stata(dt = geosurvey_dt[, c("lnwelfare",
+                                                  candidate_vars,
+                                                  "hhweight",
+                                                  "admin4Pcod"), with = FALSE],
+                            xvars = candidate_vars,
+                            y = "lnwelfare",
+                            weights = "hhweight",
+                            selection = "BIC",
+                            stata_path = "D:/Programs/Stata18/StataMP-64",
+                            stata_vnum = 18,
+                            cluster_id = "admin4Pcod")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
