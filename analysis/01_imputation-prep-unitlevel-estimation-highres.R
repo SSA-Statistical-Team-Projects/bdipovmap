@@ -92,7 +92,6 @@ gridpoly_dt <-
   st_as_sf(crs = 32735) %>%
   st_transform(crs = 4326)
 
-
 grid_dt <-
   grid_dt %>%
   mutate(grid_ID = 1:nrow(.)) %>%
@@ -351,6 +350,7 @@ geosurvey_dt %>%
   st_join(grid_dt[,c(colnames(grid_dt)[!colnames(grid_dt) %in% colnames(geosurvey_dt)], "geometry")] %>%
             st_as_sf(crs = 4326))
 
-###
-
+geosurvey_dt <-
+geosurvey_dt %>%
+  mutate(lnwelfare = log(welfare + 1))
 
