@@ -375,24 +375,56 @@ geosurvey_dt <- cbind(geosurvey_dt,
 grid_dt <- cbind(grid_dt,
                  as.data.table(dummify(grid_dt$admin1Pcod)))
 
+geosurvey_dt[, (candidate_vars) :=
+               lapply(.SD, function(x){
 
-admin4_selvars <-
-  countrymodel_select_stata(dt = geosurvey_dt[, c("lnwelfare",
-                                                  candidate_vars,
-                                                  "hhweight",
-                                                  "admin4Pcod"), with = FALSE],
-                            xvars = candidate_vars,
-                            y = "lnwelfare",
-                            weights = "hhweight",
-                            selection = "BIC",
-                            stata_path = "D:/Programs/Stata18/StataMP-64",
-                            stata_vnum = 18,
-                            cluster_id = "admin4Pcod")
+                 if (any(is.na(x))) {
+                   mean_val <- mean(x, na.rm = TRUE)
+                   replace(x, is.na(x), mean_val)
+                 } else {
+                   x
+                 }
+
+               }),
+             .SDcols = candidate_vars,
+             by = "admin1Pcod"]
+
+### save the data to .dta file
+colnames(geosurvey_dt)[grepl("bdi_ppp_2020_UNadj_constrained", colnames(geosurvey_dt))] <-
+  gsub(pattern = "bdi_ppp_2020_UNadj_constrained",
+       replacement = "wpop_population",
+       x = colnames(geosurvey_dt)[grepl("bdi_ppp_2020_UNadj_constrained", colnames(geosurvey_dt))])
+
+colnames(grid_dt)[grepl("bdi_ppp_2020_UNadj_constrained", colnames(grid_dt))] <-
+  gsub(pattern = "bdi_ppp_2020_UNadj_constrained",
+       replacement = "wpop_population",
+       x = colnames(grid_dt)[grepl("bdi_ppp_2020_UNadj_constrained", colnames(grid_dt))])
+
+candidate_vars[grepl("bdi_ppp_2020_UNadj_constrained", candidate_vars)] <-
+  gsub(pattern = "bdi_ppp_2020_UNadj_constrained",
+       replacement = "wpop_population",
+       x = candidate_vars[grepl("bdi_ppp_2020_UNadj_constrained", candidate_vars)])
 
 
+# haven::write_dta(geosurvey_dt[, c(candidate_vars,
+#                                   "lnwelfare",
+#                                   "admin2Pcod",
+#                                   "admin3Pcod",
+#                                   "admin4Pcod",
+#                                   "hhweight"),
+#                               with = F],
+#                  "data-clean/geosurvey.dta")
 
 
+#### ran lasso linear model selection in stata
+admin4selvars_list <- readLines("data-clean/model_selection/selected_variables_admin4.txt")
+admin4selvars_list <- strsplit(admin4selvars_list, " +")[[1]]
 
+admin3selvars_list <- readLines("data-clean/model_selection/selected_variables_admin3.txt")
+admin3selvars_list <- strsplit(admin3selvars_list, " +")[[1]]
+
+admin2selvars_list <- readLines("data-clean/model_selection/selected_variables_admin2.txt")
+admin2selvars_list <- strsplit(admin2selvars_list, " +")[[1]]
 
 
 

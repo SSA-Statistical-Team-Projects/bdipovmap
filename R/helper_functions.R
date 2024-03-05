@@ -206,47 +206,27 @@ countrymodel_select_stata <- function(dt,
   if (is.null(area_tag)) {
 
     stata_src <- c("use data.dta, replace",
-                   paste0("lassowrapper ",
+                   paste0("lasso linear ",
                           y_arg,
                           " ",
                           x[1],
                           "-",
                           x[length(x)],
-                          ", weights(",
+                          " [iw = ",
                           weights_arg,
-                          ") select(bic, postsel) cluster(",
+                          "], select(bic, postsel) cluster(",
                           cluster_id,
-                          ") input(data.dta) output(model.txt)"))
-
-  } else {
-
-    stata_src <- c("use data.dta, replace",
-                   paste0("lassowrapper ",
-                          colnames(y),
-                          " ",
-                          x[1],
-                          "-",
-                          x[length(x)],
-                          ", weights(",
-                          weights,
-                          ") force(",
-                          paste0(area_tag, "*"),
-                          ") select(bic, postsel) cluster(",
-                          cluster_id,
-                          ") input(data.dta) output(model.txt)"))
+                          ")"),
+                   "qui eststo", "estimates store lasso_model",
+                   "esttab lasso_model using selected_variables.csv, varwidth(20) nomtitles nonumbers nogaps nodepvars replace")
 
   }
 
-
-
-
   RStata::stata(src = stata_src)
 
-  var_list <- readLines("model.txt")
+  var_dt <- read.csv("selected_variables.csv")
 
-  var_list <- unlist(strsplit(var_list, " "))
-
-  return(var_list)
+  return(var_dt)
 
 
 }
