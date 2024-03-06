@@ -280,6 +280,8 @@ constant_cols <- names(grid_dt)[sapply(grid_dt, function(x) length(unique(x)) ==
 grid_dt[, (constant_cols) := NULL]
 
 candidate_vars <- candidate_vars[!(candidate_vars %in% constant_cols)]
+candidate_vars <- candidate_vars[!grepl(pattern = "bdi_ppp_2020_UNadj_constrained",
+                                       x = candidate_vars)]
 
 ### now finally compute the admin average variables
 admin1_dt <-
@@ -426,7 +428,31 @@ admin3selvars_list <- strsplit(admin3selvars_list, " +")[[1]]
 admin2selvars_list <- readLines("data-clean/model_selection/selected_variables_admin2.txt")
 admin2selvars_list <- strsplit(admin2selvars_list, " +")[[1]]
 
-
+#### run the povmap to estimate the poverty map at admin2, 3, 4 levels
+admin4_model <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin4selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin4selvars_list,
+                                                          "admin4Pcod",
+                                                          "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin4Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin4selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin4Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE)
 
 
 
