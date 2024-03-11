@@ -501,7 +501,45 @@ replace_na_with_avg <- function(x) {
 
 
 
+### compare national estimates from model and survey
+compute_ebpnat_pov <- function(ebp_obj,
+                               pop_dt,
+                               pop_weights,
+                               pop_domains){
 
+  povest_dt <- as.data.table(ebp_obj$ind)
+
+  pop_dt <- as.data.table(pop_dt)
+
+  setnames(pop_dt, pop_weights, "pop_weights")
+  setnames(pop_dt, pop_domains, "pop_domains")
+
+  pop_dt <-
+  pop_dt %>%
+    group_by(pop_domains) %>%
+    summarise(population = sum(pop_weights, na.rm = TRUE))
+
+  pop_dt <-
+  pop_dt %>%
+    mutate(Domain = as.factor(pop_domains))
+
+  povest_dt <-
+    povest_dt %>%
+    merge(pop_dt)
+
+
+  # povest_dt %>%
+  #   setnames(old = "V1", new = "population")
+
+  result <-
+    povest_dt %>%
+    summarize(prate = weighted.mean(x = Head_Count,
+                                    w = population,
+                                    na.rm = TRUE))
+
+  return(result)
+
+}
 
 
 
