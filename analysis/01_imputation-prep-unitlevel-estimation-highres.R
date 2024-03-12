@@ -443,9 +443,13 @@ admin3selvars_list <- strsplit(admin3selvars_list, " +")[[1]]
 admin2selvars_list <- readLines("data-clean/model_selection/selected_variables_admin2.txt")
 admin2selvars_list <- strsplit(admin2selvars_list, " +")[[1]]
 
+admin1selvars_list <- readLines("data-clean/model_selection/selected_variables_admin1.txt")
+admin1selvars_list <- strsplit(admin1selvars_list, " +")[[1]]
+
+
 #### run the povmap to estimate the poverty map at admin2, 3, 4 levels with log transformation
 admin4_model <-
-  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin2selvars_list, collapse= "+"))),
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin4selvars_list, collapse= "+"))),
               pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
                                                        c(admin2selvars_list,
                                                           "admin4Pcod",
@@ -1150,6 +1154,353 @@ admin4_model4_boxcox <-
 saveRDS(admin4_model4_logshift, "data-clean/ebp_results/admin4_model4_logshift.RDS")
 saveRDS(admin4_model4_ordernorm, "data-clean/ebp_results/admin4_model4_ordernorm.RDS")
 saveRDS(admin4_model4_boxcox, "data-clean/ebp_results/admin4_model4_boxcox.RDS")
+
+
+#### models with area dummies since we have forgotten them so far
+admin4_model1 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin1selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin1selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin4Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin1selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin4Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin4_ydump1.csv")
+
+admin3_model1 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin1selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin1selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin3Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin1selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin3Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin3_ydump1.csv")
+
+admin2_model1 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin1selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin1selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin2Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin1selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin2Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin2_ydump1.csv")
+
+saveRDS(admin4_model1, "data-clean/ebp_results/adm1_included/admin4_model1.RDS")
+saveRDS(admin3_model1, "data-clean/ebp_results/adm1_included/admin3_model1.RDS")
+saveRDS(admin2_model1, "data-clean/ebp_results/adm1_included/admin2_model1.RDS")
+
+
+### compute models from variables selected via admin2 clustering in model selection
+admin4_model2 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin2selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin2selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin4Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin2selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin4Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin4_ydump2.csv")
+
+admin3_model2 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin2selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin2selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin3Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin2selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin3Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin3_ydump1.csv")
+
+admin2_model2 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin2selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin2selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin2Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin2selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin2Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin2_ydump1.csv")
+
+saveRDS(admin4_model2, "data-clean/ebp_results/adm1_included/admin4_model2.RDS")
+saveRDS(admin3_model2, "data-clean/ebp_results/adm1_included/admin3_model2.RDS")
+saveRDS(admin2_model2, "data-clean/ebp_results/adm1_included/admin2_model2.RDS")
+
+### compute models from variables selected via admin3 clustering in model selection
+admin4_model3 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin3selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin3selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin4Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin3selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin4Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin4_ydump3.csv")
+
+admin3_model3 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin3selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin3selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin3Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin3selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin3Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin3_ydump3.csv")
+
+admin2_model3 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin3selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin3selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin2Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin3selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin2Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin2_ydump3.csv")
+
+saveRDS(admin4_model3, "data-clean/ebp_results/adm1_included/admin4_model3.RDS")
+saveRDS(admin3_model3, "data-clean/ebp_results/adm1_included/admin3_model3.RDS")
+saveRDS(admin2_model3, "data-clean/ebp_results/adm1_included/admin2_model3.RDS")
+
+
+### compute models from variables selected via admin3 clustering in model selection
+admin4_model4 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin4selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin4selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin4Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin4selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin4Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin4_ydump4.csv")
+
+admin3_model4 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin4selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin4selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin3Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin4selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin3Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin3_ydump4.csv")
+
+admin2_model4 <-
+  povmap::ebp(fixed = as.formula(paste("welfare ~ ", paste(admin4selvars_list, collapse= "+"))),
+              pop_data = as.data.frame(na.omit(grid_dt[wpop_population > 0,
+                                                       c(admin4selvars_list,
+                                                         "admin4Pcod",
+                                                         "wpop_population"),
+                                                       with = FALSE])),
+              pop_domains = "admin2Pcod",
+              smp_data = as.data.frame(na.omit(geosurvey_dt[!is.na(admin4Pcod),
+                                                            c("welfare",
+                                                              admin4selvars_list,
+                                                              "admin4Pcod",
+                                                              "hhweight"),
+                                                            with = FALSE])),
+              smp_domains = "admin2Pcod",
+              L = 100,
+              B = 100,
+              transformation = "log",
+              threshold = 11111.76,
+              weights = "hhweight",
+              pop_weights = "wpop_population",
+              cpus = 30,
+              MSE = TRUE,
+              na.rm = TRUE,
+              rescale_weights = TRUE,
+              Ydump = "//esapov/esapov/BDI/GEO/Population/ydump/adm1_included/admin2_ydump4.csv")
+
+saveRDS(admin4_model4, "data-clean/ebp_results/adm1_included/admin4_model4.RDS")
+saveRDS(admin3_model4, "data-clean/ebp_results/adm1_included/admin3_model4.RDS")
+saveRDS(admin2_model4, "data-clean/ebp_results/adm1_included/admin2_model4.RDS")
 
 
 save.image("//esapov/esapov/BDI/GEO/Population/unitmodel_images.RData")
