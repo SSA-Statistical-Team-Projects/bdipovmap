@@ -370,13 +370,23 @@ write.csv(summary_cv_dt, "figures/post-est-tables/summary_cv_tables.csv")
 save.image("data-raw/all_modelpostestimation.RData")
 
 
+#### save poverty rates and direct estimates for
+sasha_dt <-
+  povest_dt[, c("targetarea_codes", "admin2Name", "admin1Pcod", "Head_Count")] %>%
+  merge(shp_dt[, c("admin1Name", "admin1Pcod")] %>%
+          st_drop_geometry()) %>%
+  st_drop_geometry() %>%
+  rename(EBP_Head_Count = "Head_Count") %>%
+  merge(direct_dt$ind[, c("Domain", "Head_Count")],
+        by.x = "targetarea_codes",
+        by.y = "Domain",
+        all = TRUE) %>%
+  rename(Direct_Head_Count = "Head_Count")
 
+sasha_dt <- sasha_dt[, c("admin1Pcod", "targetarea_codes", "admin1Name", "admin2Name",
+                         "EBP_Head_Count", "Direct_Head_Count")]
 
-
-
-
-
-
+write.csv(sasha_dt, "data-clean/ebp_results/ebpdirect_headcount.csv")
 
 
 
