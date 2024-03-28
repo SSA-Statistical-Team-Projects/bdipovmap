@@ -3,7 +3,7 @@
 ################################################################################
 pacman::p_load("haven", "sf", "data.table", "dplyr", "ggplot2", "nlme", "RStata",
                "exactextractr", "raster", "povmap", "viridis", "glmmLasso",
-               "lme4", "gridExtra", "MASS", "furrr", "purrr")
+               "lme4", "gridExtra", "MASS", "furrr", "purrr", "survey")
 
 sf::sf_use_s2(FALSE)
 
@@ -28,10 +28,10 @@ geosurvey_dt <- haven::read_dta("data-raw/hh_poverty.dta") ### household survey
 
 geosurvey_dt <-
   geosurvey_dt %>%
-  rename(welfare = "rae_tot_cons")
+  rename(welfare = "rpc_tot_cons")
 
 geosurvey_dt %>%
-  mutate(poor = ifelse(welfare < pline_abs_lb_ae, 1, 0)) %>%
+  mutate(poor = ifelse(welfare < pline_int_215, 1, 0)) %>%
   summarise(weighted.mean(x = poor,
                           w = weight_adj * hh_size,
                           na.rm = TRUE))
@@ -445,6 +445,190 @@ admin2selvars_list <- strsplit(admin2selvars_list, " +")[[1]]
 
 admin1selvars_list <- readLines("data-clean/model_selection/selected_variables_admin1.txt")
 admin1selvars_list <- strsplit(admin1selvars_list, " +")[[1]]
+
+
+### put together the fay herriot level model
+divisions_dt <- unique(grid_dt[, c("admin1Pcod", "admin1Name", "admin2Pcod", "admin2Name",
+                                   "admin3Pcod", "admin3Name", "admin4Pcod", "admin4Name")])
+
+#### remove the welf_int variables from the candidate variables
+admin2_candvars <- colnames(admin2_dt)[!grepl("_welf_int",
+                                              colnames(admin2_dt))]
+admin2_candvars <- admin2_candvars[!grepl("admin2Pcod", admin2_candvars)]
+
+### compare variance, design effect and effective sample size
+geosurvey_dt <-
+  geosurvey_dt %>%
+  merge(geocodes_dt[, c("hhid", "enum_area")])
+
+geosurvey_dt[, poor := ifelse(welfare < pline_int_215, 1, 0)]
+
+geosvy_obj <- survey::svydesign(id = ~enum_area,
+                                weights = ~hhweight,
+                                survey.lonely.psu = "adjust",
+                                data = geosurvey_dt)
+
+areapop_dt <- svyby(~poor,
+                    ~admin1Pcod,
+                    geosvy_obj,
+                    svymean,
+                    deff = TRUE)
+
+areapop_dt <- as.data.table(areapop_dt)
+
+add_dt <- geosurvey_dt[, length(hhid), by = c("admin1Pcod", "admin2Pcod")] %>%
+  setnames(old = "V1", new = "sample_size") ## compute size of sample in each target area
+
+add_dt <- add_dt[!is.na(admin1Pcod),] ##drop missing observations (only 1)
+
+areapop_dt <- add_dt[areapop_dt,
+                     on = c("admin1Pcod")]
+
+areapop_dt[, ess := sample_size / DEff.poor]
+
+### re-estimate the actual poverty rates
+pov_dt <-
+  geosurvey_dt[, weighted.mean(x = poor,
+                               w = hhweight,
+                               na.rm = TRUE),
+               by = c("admin1Pcod", "admin2Pcod")] %>%
+  setnames(old = "V1", new = "Direct")
+
+areapop_dt <- pov_dt[areapop_dt, on = c("admin1Pcod", "admin2Pcod")]
+
+commune_dt <- areapop_dt[admin2_dt, on = "admin2Pcod"]
+
+
+### check poverty rate
+geosurvey_dt %>%
+  summarise(weighted.mean(x = poor,
+                          w = hhweight,
+                          na.rm = TRUE))
+
+### add population to commune level data
+communepop_dt <-
+  grid_dt[, sum(wpop_population, na.rm = TRUE),
+          by = admin2Pcod] %>%
+  setnames(old = "V1", new = "population")
+
+commune_dt <- communepop_dt[commune_dt, on = "admin2Pcod"]
+
+add_dt <- unique(grid_dt[, c(colnames(grid_dt)[grepl("BDI",
+                                                     colnames(grid_dt))],
+                             "admin2Pcod"),
+                         with = FALSE])
+
+commune_dt <- add_dt[commune_dt, on = "admin2Pcod"]
+
+admin2_candvars <- c(admin2_candvars,
+                     colnames(add_dt)[grepl("BDI",
+                                           colnames(add_dt))])
+
+haven::write_dta(commune_dt[, c("Direct",
+                                admin2_candvars,
+                                "population",
+                                "admin1Pcod",
+                                "admin2Pcod"), with = F],
+                 "data-clean/commune_upddata.dta")
+
+### next we perform model selection
+selvars_list <- countrymodel_select(dt = commune_dt,
+                                    xvars = admin2_candvars,
+                                    y = "Direct")
+
+### compute the fh model
+domsize_dt <-
+  geosurvey_dt[, sum(hhweight, na.rm = TRUE), by = admin2Pcod] %>%
+  setnames(old = "V1", new = "domsize") %>%
+  filter(!is.na(admin2Pcod))
+
+saepop_dt <-
+  sae::direct(y = poor,
+              dom = admin2Pcod,
+              sweight = hhweight,
+              domsize = domsize_dt,
+              data = geosurvey_dt) %>%
+  mutate(var = SD ^ 2)
+
+setnames(saepop_dt, "Domain", "admin2Pcod")
+
+commune_dt$Direct <- NULL
+saepop_dt <- as.data.table(saepop_dt)
+commune_dt <- saepop_dt[commune_dt, on = "admin2Pcod"]
+
+
+
+combine_dt <- povmap::combine_data(pop_data = commune_dt[, c(selvars_list,
+                                                             "admin2Pcod"),
+                                                         with = FALSE],
+                                   pop_domains = "admin2Pcod",
+                                   smp_data = commune_dt[!is.na(Direct),
+                                                         c("admin2Pcod",
+                                                           "Direct",
+                                                           "var",
+                                                           "ess"),
+                                                         with = FALSE],
+                                   smp_domains = "admin2Pcod")
+
+fhmodel_not <-
+  povmap::fh(fixed = as.formula(paste("Direct ~ ", paste(selvars_list, collapse= "+"))),
+             vardir = "var",
+             combined_data = combine_dt,
+             domains = "admin2Pcod",
+             method = "ml",
+             MSE = TRUE,
+             mse_type = "analytical")
+
+fhmodel_log <-
+  povmap::fh(fixed = as.formula(paste("Direct ~ ", paste(selvars_list, collapse= "+"))),
+             vardir = "var",
+             combined_data = combine_dt,
+             domains = "admin2Pcod",
+             method = "ml",
+             MSE = TRUE,
+             mse_type = "analytical",
+             transformation = "log",
+             backtransformation = "bc_sm")
+
+fhmodel_arcsin <-
+  povmap::fh(fixed = as.formula(paste("Direct ~ ", paste(selvars_list, collapse= "+"))),
+             vardir = "var",
+             combined_data = combine_dt,
+             domains = "admin2Pcod",
+             method = "ml",
+             MSE = TRUE,
+             mse_type = "boot",
+             transformation = "arcsin",
+             backtransformation = "bc",
+             eff_smpsize = "ess")
+
+
+result_dt <- as.data.table(fhmodel_arcsin$ind)
+
+#### compare province level rates
+fhpov_dt <-
+  result_dt %>%
+  merge(unique(commune_dt[, c("population",
+                              "admin2Pcod",
+                              "admin1Pcod")]),
+        by.y = "admin2Pcod",
+        by.x = "Domain") %>%
+  group_by(admin1Pcod) %>%
+  summarise(provFH = weighted.mean(x = FH,
+                                   w = population,
+                                   na.rm = TRUE)) %>%
+  merge(geosurvey_dt %>%
+          group_by(admin1Pcod) %>%
+          summarise(provDirect = weighted.mean(x = poor,
+                                               w = hhweight,
+                                               na.rm = TRUE)),
+        by = "admin1Pcod")
+
+
+### save the fay herriot model results for arcsin
+saveRDS(object = fhmodel_arcsin,
+        "data-clean/fhmodel_arcsin_admin2.RDS")
+
 
 
 #### run the povmap to estimate the poverty map at admin2, 3, 4 levels with log transformation

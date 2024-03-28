@@ -1,0 +1,7 @@
+"","variables","coefficients","std_error"
+"1","(Intercept)","1.682***","0.193"
+"2","targetave_ntl_small_stl_2015","-0.061","0.055"
+"3","targetave_2018_Snow_Ice","-0.52***","0.090"
+"4","targetave_BU2016DHS_EDLITRMLIT","-0.93***","0.248"
+"5","BDI015","0.209***","0.048"
+"6","BDI016","0.188**","0.062"
