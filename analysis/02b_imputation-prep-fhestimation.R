@@ -1,6 +1,7 @@
 ################################################################################
 ############### PREPARING THE SURVEY AND CENSUS DATA FOR SAE ###################
 ################################################################################
+devtools::load_all()
 
 pacman::p_load("haven", "sf", "data.table", "dplyr", "ggplot2", "nlme", "RStata",
                "exactextractr", "raster", "povmap", "viridis", "glmmLasso",

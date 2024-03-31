@@ -1,0 +1,177 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+
+pacman::p_load("here", "kable", "kableExtra")
+
+```
+
+# Poverty Mapping in Burundi : Reproducability Guidelines
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+The goal of bdipovmap is to create a poverty map for Burundi using the Small Area Estimation approach of the Fay Herriot Model (Fay and Herriot, 1979). This ReadMe shows how to reproduce all the tables and results in the paper. You can find the script that generates this readme file as "README.Rmd" in this github working directory. 
+
+## System Set-Up
+1)  Please clone the repository and open up the project within RStudio.
+    Make sure you are in the project environment. In the top right corner
+    you will see the "bdipovmap" beside the R logo to show you are in the
+    project's environment. This is extremely important. Otherwise you 
+    cannot automatically load the user defined functions. 
+
+2)  Please install the R `devtools` package, run
+    `install.packages("devtools")`
+
+3) Open `README.Rmd` and go ahead and knit the Markdown file. This file is basically
+running the script that produces the poverty map. 
+
+Please see code and outputs below: 
+
+```{r, echo=FALSE, include = TRUE}
+
+source(here("analysis/02b_imputation-prep-fhestimation.R"))
+
+
+```
+
+
+4) Please see the results in the paper below: 
+
+### Table 1: Basic Descriptive Statistics
+```{r, echo = TRUE, include = TRUE}
+
+descriptives_dt <- 
+  data.table(tot_pop_million = round(sum(grid_dt$bdi_ppp_2020_UNadj_constrained, na.rm = TRUE)/1e6, 1),
+             pop_hhs_million = round(sum(geosurvey_dt$weight, na.rm = TRUE)/1e6, 1),
+             svy_hhs = nrow(geosurvey_dt),
+             povrate_ipl = 
+               geosurvey_dt %>%
+               mutate(ifelse(rpc_tot_cons < pline_int_215, 1, 0)) %>%
+               summarise(povrate_ipl = weighted.mean(x = poor,
+                                                     w = weight * hh_size,
+                                                     na.rm = TRUE)) %>%
+               round(4),
+             recent_census = 2008 %>% as.integer(),
+             region_count_sample = length(unique(geosurvey_dt$admin1Pcod[!is.na(geosurvey_dt$admin1Pcod)])),
+             median_cv_region = 
+               directpov_dt %>%
+               summarize(median = median(directpov_dt$CV/100, na.rm = TRUE)),
+             mean_cv_region = 
+               directpov_dt %>%
+               summarize(mean = weighted.mean(x = directpov_dt$CV/100, 
+                                              w = directpov_dt$SampSize,
+                                              na.rm = TRUE)),
+             num_targets_pop = length(unique(grid_dt$admin2Pcod[!is.na(grid_dt$admin2Pcod)])),
+             num_targets_sample = length(unique(geosurvey_dt$admin2Pcod[!is.na(geosurvey_dt$admin2Pcod)]))) %>%
+  t() %>%
+  kable()
+
+
+descriptives_dt
+
+```
+
+    
+### FH Model Results and Diagnostics
+This contains the results seen in Tables 3 & 4
+
+```{r, echo = TRUE, include = TRUE}
+
+summary(fhmodel_arcsin)
+
+```
+
+
+### Residual Plots and Q-Q plots
+This contains the figures 1 in the paper and figure 4 in the appendix
+
+
+```{r, echo = TRUE, include = TRUE}
+
+plot(fhmodel_arcsin)
+
+```
+
+
+
+
+### Poverty Maps
+```{r, echo = TRUE, include = TRUE}
+
+communeshp_dt %>%
+  ggplot() +
+  geom_sf(aes(fill = FH)) +
+  scale_fill_viridis(option = "H") +
+  theme_bw() +
+  labs(fill = "Poverty Rate")
+
+
+communeshp_dt %>%
+  ggplot() +
+  geom_sf(aes(fill = FH * population)) +
+  scale_fill_viridis(option = "H") +
+  theme_bw() +
+  labs(fill = "Population \nof Poor")
+
+
+```
+
+
+### Comparing the Estimated and Direct Poverty Rates at Province Level
+This is the figure 2 in the paper and the table 5 in the appendix
+
+```{r, echo = TRUE, include = TRUE}
+
+provpov_dt %>%
+  ggplot(aes(x = admin1Name)) +
+  geom_point(aes(y = provFH), color = "blue", size = 2) +  # Plotting provFH
+  geom_errorbar(aes(ymin = DirectLB, ymax = DirectUB), width = 0.2, color = "red") +  # Error bars for DirectLB and DirectUB
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +  # Adding a horizontal line at y = 0
+  labs(x = "Province", y = "Poverty Rate") +  # Labeling axes
+  theme_bw() +  # Setting a white background theme
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotating x-axis labels for better readability
+
+provpov_dt[, c("admin1Name","Direct", "DirectLB", "DirectUB")] %>%
+  kable()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
