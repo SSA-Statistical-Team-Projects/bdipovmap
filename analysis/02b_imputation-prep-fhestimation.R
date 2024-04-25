@@ -797,7 +797,12 @@ communeshp_dt %>%
 
 ggsave("figures/poverty_map_count_fhmodelarcsin_oldshapefile.png")
 
-#### get MSEs and compute province standard error for FH estimates
+#### prepare some data for Sasha
+
+write.csv(communeshp_dt %>%
+            mutate(poppoor = FH * population) %>%
+            st_drop_geometry(),
+          "figures/post-est-tables/fh_poppoor.csv")
 
 
 
